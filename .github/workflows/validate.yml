@@ -46,3 +46,8 @@ jobs:
           ./dm/ios/tests/t_touch_controls
           ./dm/ios/tests/t_binding_freshness
           ./dm/ios/tests/t_portal_sequence
+      - name: Verify branded source and release gates
+        run: |
+          python3 scripts/release_checks.py source
+          python3 -m unittest discover -s scripts/tests -v
+          bash -n dm/tools/mac_app.sh dm/ios/tools/shell_build.sh

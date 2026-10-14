@@ -105,4 +105,6 @@ print('内容核对：%d 个特征串（另有 %d 个是源码里本来就有的
 PYEOF
 ( cd "$A" && find . -type f | sort | while read -r f; do printf '%s\t%s\n' "$(stat -f %z "$f")" "$f"; done ) > "$O/shell_files.tsv"
 ( cd "$O" && rm -rf Payload && mkdir Payload && cp -R app Payload/DmIOS.app && zip -qry Game2Mobile-shell.ipa Payload && rm -rf Payload ) || die "打包失败"
+# Independent, game-free artifact gate before anybody distributes the shell.
+python3 "$SRC/../scripts/release_checks.py" shell "$O/Game2Mobile-shell.ipa" || die "安装壳包含不允许的内容，拒绝分发"
 t "壳：$O/Game2Mobile-shell.ipa（$(du -h "$O/Game2Mobile-shell.ipa" | cut -f1)，$(wc -l < "$O/shell_files.tsv" | tr -d ' ') 个文件）；缺的内容 $(wc -l < "$O/shell_manifest.txt" | tr -d ' ') 项，清单 $O/shell_manifest.txt"
