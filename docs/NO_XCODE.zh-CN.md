@@ -17,7 +17,7 @@ English: [NO_XCODE.md](NO_XCODE.md)
 
 ## 壳里有什么、没有什么
 
-壳从本仓库的[发布页](https://github.com/jhaizhou-ops/d2r-mobile/releases)下载。发布页上有两份：`Game2Mobile-shell.ipa` 给 iOS 26 及以上，`Game2Mobile-shell-ios18.ipa` 给 iOS 18 – 25（[OLDER_SYSTEMS.zh-CN.md](OLDER_SYSTEMS.zh-CN.md)），按手机的系统挑一份，后面的步骤相同。壳（约 4 MB）里只有我们自己的宿主程序、图标和两张随仓库公开的表。它**没有**：游戏程序、着色器、覆盖层、界面素材、任何从游戏文件生成的数据表。构建壳的脚本（`dm/ios/tools/shell_build.sh`）在最后会拿真实的游戏内容去壳里逐个文件搜一遍，搜到就不出壳。
+**本项目目前没有发布可直接下载的 Game2Mobile 安装壳。** 具备 Xcode 的 Mac 可按 `dm/ios/tools/shell_build.sh` 从对应版本源码生成无游戏内容的壳。待将来独立发布后，预计 `Game2Mobile-shell.ipa` 面向 iOS 26 及以上，旧系统版预计名为 `Game2Mobile-shell-ios18.ipa`（见 [OLDER_SYSTEMS.zh-CN.md](OLDER_SYSTEMS.zh-CN.md)）。**[原项目的 Releases](https://github.com/jhaizhou-ops/d2r-mobile/releases) 不是 Game2Mobile 的发布包，不可当作本项目已验证的壳。** 拿到与源码版本匹配的壳以后，下文的 Windows/Linux 加料、签名步骤才适用。壳（约 4 MB）里只有我们自己的宿主程序、图标和两张随仓库公开的表。它**没有**：游戏程序、着色器、覆盖层、界面素材、任何从游戏文件生成的数据表。构建壳的脚本（`dm/ios/tools/shell_build.sh`）在最后会拿真实的游戏内容去壳里逐个文件搜一遍，搜到就不出壳。
 
 壳自己起不来——它启动时会告诉你「这个安装包里还没有游戏程序」。
 
