@@ -23,7 +23,9 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 - 使用 macOS 原生 `sips` + `iconutil` 生成并校验 `Game2Mobile.icns`；
 - `scripts/tests/test_project_variants.py` 覆盖正式/免费账号 × Metal 4/M3 四种工程生成组合。
 
-以上均是**无需商业游戏文件的实际构建/编译检查**，并不等于 Xcode 完整 target 链接成功或真机运行通过。[查看已通过的 Apple Silicon 验证](https://github.com/ForceMind/Game2Mobile/actions/runs/38612203914)。
+以上均是**无需商业游戏文件的实际构建/编译检查**，并不等于 Xcode 完整 target 链接成功或真机运行通过。
+
+**新增 Apple 目标码验证：** [`fc5bb87e` 的双系统 CI](https://github.com/ForceMind/Game2Mobile/actions/runs/38613049859) 在 macOS 26 Runner 上成功生成并核对 **10 份实际 ARM64 Mach-O `.o`**，包含图形 Metal4/M3 的 macOS/iOS 四种目标、iOS `front_ios.m`/`main.m`，以及装载器 `dm/host/loader.c` 与宿主入口 `dm/host/main.c` 的 iOS/macOS 目标。另在**真实 macOS 15 ARM64 Runner**上编译旧图形 M3 目标码并运行无资产的输入/GFX 测试。这些结论来自工作流实际执行与架构检查，而不是 README 的历史设备性能声明。[查看已通过的 Apple Silicon 验证](https://github.com/ForceMind/Game2Mobile/actions/runs/38612203914)。
 
 原项目的 iOS 主 App 使用 26.0 部署目标，但下载扩展此前设为 26.4。已在 Swift 类型检查确认 26.0 编译目标可行后将扩展统一为 26.0。**iOS 26.0 实机上的 Apple-hosted 资源下载行为仍需单独验证**；M3/免费账号构建会按原脚本移除托管资源扩展。
 

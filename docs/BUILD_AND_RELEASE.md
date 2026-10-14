@@ -25,7 +25,9 @@ The [`apple-native.yml`](../.github/workflows/apple-native.yml) workflow runs on
 
 [Verified Apple Silicon run](https://github.com/ForceMind/Game2Mobile/actions/runs/38612203914).
 
-**Scope:** This verifies real Apple compilers and unit targets, but **not** a fully linked Xcode game App, asset derivation, game execution, signing, or a tested release. The previously mismatched iOS 26.4 downloader extension target was aligned to the host app's iOS 26.0 target following successful Swift 6 type checking. Apple-hosted asset downloads on iOS 26.0 still require on-device testing.
+**Scope:** This verifies real Apple compilers and unit targets, but **not** a fully linked Xcode game App, asset derivation, game execution, signing, or a tested release.
+
+**Native object code proof:** [dual-platform run at `fc5bb87e`](https://github.com/ForceMind/Game2Mobile/actions/runs/38613049859) emitted **10 real ARM64 Mach-O `.o` objects** on macOS 26 for both Metal API variants, iOS front-end/entry, and the production guest loader/host entry on iOS/macOS. A separate actual **macOS 15 ARM64 runner** also compiled the older Metal M3 backend and executed asset-free input and graphics math tests. These are genuinely executed compiler checks; they are not game-integration or playable-app evidence. The previously mismatched iOS 26.4 downloader extension target was aligned to the host app's iOS 26.0 target following successful Swift 6 type checking. Apple-hosted asset downloads on iOS 26.0 still require on-device testing.
 
 ## Prerequisites for the first Apple build
 
