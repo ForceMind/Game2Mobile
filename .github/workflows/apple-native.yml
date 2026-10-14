@@ -95,6 +95,16 @@ jobs:
           ios_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
           xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 \
             -isysroot "$ios_sdk" -fobjc-arc -fsyntax-only \
+            -I dm/gfx/nvn/include dm/gfx/nvn/nvn_mtl.m
+          xcrun --sdk iphoneos clang -target arm64-apple-ios18.0 \
+            -isysroot "$ios_sdk" -fobjc-arc -DDM_NVN_M3=1 -fsyntax-only \
+            -I dm/gfx/nvn/include dm/gfx/nvn/nvn_mtl.m
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 \
+            -isysroot "$ios_sdk" -fobjc-arc -fsyntax-only \
+            -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
+            dm/ios/Sources/main.m
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 \
+            -isysroot "$ios_sdk" -fobjc-arc -fsyntax-only \
             -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
             dm/ios/Sources/front_ios.m
 
