@@ -135,6 +135,15 @@ jobs:
           xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -isysroot "$ios_sdk" \
             -fobjc-arc -O0 -c -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
             dm/ios/Sources/main.m -o "$out/main-ios26.o"
+          # Native host entry and loader: compile real runtime source, not fixtures.
+          xcrun --sdk macosx clang -std=gnu11 -O0 -c \
+            dm/host/loader.c -o "$out/loader-macos26.o"
+          xcrun --sdk macosx clang -std=gnu11 -O0 -c \
+            dm/host/main.c -o "$out/host-main-macos26.o"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -isysroot "$ios_sdk" \
+            -std=gnu11 -O0 -c dm/host/loader.c -o "$out/loader-ios26.o"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -isysroot "$ios_sdk" \
+            -std=gnu11 -O0 -c dm/host/main.c -o "$out/host-main-ios26.o"
           for object in "$out"/*.o; do
             test -s "$object"
             test "$(lipo -archs "$object")" = arm64
@@ -178,3 +187,37 @@ jobs:
           printf 'App/Xcode target link: NOT RUN (requires legally provided game files)\n'
           printf 'On-device rendering/input/saves: NOT RUN\n'
           printf 'Signed IPA/Release: NOT CREATED\n'
+
+  native-macos-legacy:
+    name: Legacy native ARM64 / macOS 15
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify older Apple Silicon macOS runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Compile legacy Metal M3 backend on actual macOS 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang -fobjc-arc -O0 -c \
+            -mmacosx-version-min=15.0 -DDM_NVN_M3=1 \
+            -I dm/gfx/nvn/include dm/gfx/nvn/nvn_mtl.m \
+            -o "$RUNNER_TEMP/Game2Mobile-Metal-M3-macos15.o"
+          test "$(lipo -archs "$RUNNER_TEMP/Game2Mobile-Metal-M3-macos15.o")" = arm64
+          make -C dm/ios/tests CC=clang t_touch_controls t_binding_freshness t_portal_sequence
+          ./dm/ios/tests/t_touch_controls
+          ./dm/ios/tests/t_binding_freshness
+          ./dm/ios/tests/t_portal_sequence
+          make -C dm/gfx/tests t_hmap t_cover t_pace
+          ./dm/gfx/tests/t_hmap
+          ./dm/gfx/tests/t_cover
+          ./dm/gfx/tests/t_pace
+          echo "macOS 15 M3 compile and asset-free tests passed; complete legacy app not tested."
