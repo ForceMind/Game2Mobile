@@ -12,6 +12,21 @@ python3 dm/ios/tools/dm_i18n.py --check
 
 GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检查只证明离线静态与单元测试通过，不证明能在 iPhone、iPad、Mac 上运行。
 
+### Apple Silicon 原生检查：已实际运行
+
+本项目使用 [`apple-native.yml`](../.github/workflows/apple-native.yml) 在 GitHub 提供的 **`macos-26` ARM64 Runner** 上运行：
+
+- Xcode / iOS 与 macOS SDK 检查；Apple Silicon 原生 C 控制输入、宿主状态及图形辅助代码编译/单测；
+- **生产图形主文件** `dm/gfx/nvn/nvn_mtl.m` 在 macOS 26 Metal 4、macOS 15 M3、iOS 26 Metal 4、iOS 18 M3 四种目标上进行 `clang -fsyntax-only` 检查；
+- iOS UIKit 前端 `front_ios.m` 与启动模块 `main.m` 的 ARM64 iOS SDK 交叉语法检查；
+- Swift 下载扩展 `RomfsDownloader.swift` 按 iOS 26.0 目标进行 Swift 6 类型检查；
+- 使用 macOS 原生 `sips` + `iconutil` 生成并校验 `Game2Mobile.icns`；
+- `scripts/tests/test_project_variants.py` 覆盖正式/免费账号 × Metal 4/M3 四种工程生成组合。
+
+以上均是**无需商业游戏文件的实际构建/编译检查**，并不等于 Xcode 完整 target 链接成功或真机运行通过。[查看已通过的 Apple Silicon 验证](https://github.com/ForceMind/Game2Mobile/actions/runs/38612203914)。
+
+原项目的 iOS 主 App 使用 26.0 部署目标，但下载扩展此前设为 26.4。已在 Swift 类型检查确认 26.0 编译目标可行后将扩展统一为 26.0。**iOS 26.0 实机上的 Apple-hosted 资源下载行为仍需单独验证**；M3/免费账号构建会按原脚本移除托管资源扩展。
+
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）
 
 至少需要 Apple Silicon Mac、适合目标系统版本的 Xcode/Apple SDK、XcodeGen、.NET SDK、spirv-cross、Python，以及用户自己合法取得且**版本匹配**的《暗黑破坏神 II：狱火重生》Switch 版 `ExeFS/main`、`sdk`、`subsdk0` 与 `RomFS/data`。
@@ -32,7 +47,7 @@ cp local.env.example local.env
 | 检查 | 要求 | 当前状态 |
 |---|---|---|
 | 完整文件树 | 无丢失的源文件、第三方许可证 | 已核实 |
-| 品牌图标 | 独立 RGB iOS 图标和 macOS `.icns` 链路 | 代码具备，待 Mac 构建确认 |
+| 品牌图标 | 独立 RGB iOS 图标和 macOS `.icns` 链路 | Apple Silicon CI 已转换验证；完整 App 尚未打包 |
 | 源码 CI | i18n、Python、C 单测和发包门禁 | 已部署，持续回归 |
 | iOS 编译 | 用固定版本游戏文件，在 Apple 工具链编译无错误 | **未验证** |
 | 设备启动 | 真机启动到菜单并进入游戏 | **未验证** |

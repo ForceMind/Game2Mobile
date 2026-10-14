@@ -12,6 +12,21 @@ python3 dm/ios/tools/dm_i18n.py --check
 
 GitHub Actions also runs asset-free C and Python regression tests. A green workflow is **not** proof that the project compiles on Apple platforms or runs on real devices.
 
+## Verified native Apple compilation (without game assets)
+
+The [`apple-native.yml`](../.github/workflows/apple-native.yml) workflow runs on a real GitHub-hosted **`macos-26` Apple Silicon ARM64** worker. Successful smoke checks include:
+
+- Xcode/macOS/iPhoneOS SDK discovery and compilation/execution of native input, host core and Metal helper unit tests.
+- `clang -fsyntax-only` of the **actual production** `dm/gfx/nvn/nvn_mtl.m` for macOS 26 Metal 4, macOS 15 M3, iOS 26 Metal 4 and iOS 18 M3 targets.
+- ARM64 iOS SDK syntax checks for `front_ios.m` and `main.m`.
+- Swift 6 type checking for the `RomfsDownloader.swift` extension with iOS 26.0 as its deployment target.
+- Native `sips`/`iconutil` conversion of the committed RGB brand icon into `Game2Mobile.icns`.
+- Standalone regression tests of all four iOS project configuration combinations (paid/free × Metal 4/M3).
+
+[Verified Apple Silicon run](https://github.com/ForceMind/Game2Mobile/actions/runs/38612203914).
+
+**Scope:** This verifies real Apple compilers and unit targets, but **not** a fully linked Xcode game App, asset derivation, game execution, signing, or a tested release. The previously mismatched iOS 26.4 downloader extension target was aligned to the host app's iOS 26.0 target following successful Swift 6 type checking. Apple-hosted asset downloads on iOS 26.0 still require on-device testing.
+
 ## Prerequisites for the first Apple build
 
 Use an Apple Silicon Mac with a supported Xcode/Apple SDK, XcodeGen, .NET SDK, spirv-cross and Python. You must legally supply matching Nintendo Switch Diablo II: Resurrected game files: `ExeFS/main`, `sdk`, `subsdk0` and `RomFS/data`. Do not upload game assets or Apple signing credentials to GitHub.
