@@ -46,6 +46,7 @@ class ProjectVariantsTest(unittest.TestCase):
                     self.assertEqual('  RomfsDownloader:\n' in text, includes_extension)
                     self.assertEqual('        BAUsesAppleHosting: true' in text, includes_extension)
                     self.assertEqual('      - target: RomfsDownloader' in text, includes_extension)
+                    self.assertEqual('      IPHONEOS_DEPLOYMENT_TARGET: "26.0"' in text, includes_extension)
                     self.assertEqual('com.apple.developer.icloud-services' in text, not free)
                     self.assertEqual('com.apple.developer.kernel.extended-virtual-addressing' in text, not free)
                     self.assertIn('  TouchSmokeTests:', text)
