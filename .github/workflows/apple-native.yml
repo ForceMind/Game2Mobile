@@ -1,0 +1,109 @@
+name: Apple Silicon native smoke (asset-free)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apple-native.yml'
+      - 'dm/host/**'
+      - 'dm/gfx/**'
+      - 'dm/ios/**'
+      - 'scripts/**'
+      - 'assets/brand/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-macos:
+    name: Native ARM64 / macOS 26
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Apple Silicon and Xcode SDKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --find clang
+          test -d "$(xcrun --sdk iphoneos --show-sdk-path)"
+          python3 scripts/release_checks.py source
+
+      - name: Compile and run asset-free native iOS interaction tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C dm/ios/tests CC=clang \
+            t_touch_controls t_binding_freshness t_portal_sequence \
+            t_skill_aim t_joy_travel t_binding_group \
+            t_native_hud_identity t_metal_cache_guard t_game_bridge t_native_hud_bridge
+          for binary in \
+            t_touch_controls t_binding_freshness t_portal_sequence \
+            t_skill_aim t_joy_travel t_binding_group \
+            t_native_hud_identity t_metal_cache_guard; do
+            "./dm/ios/tests/$binary"
+          done
+          # Game bridge binaries need licensed runtime fixtures to exercise every path.
+          # They are compiled above, not counted as validated game integration.
+
+      - name: Compile and run native host core tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C dm/host/tests \
+            build/t_i18n build/t_textbox build/t_rwlv \
+            build/t_widget build/t_padmap build/t_unit_level
+          ./dm/host/tests/build/t_textbox
+          ./dm/host/tests/build/t_rwlv
+          ./dm/host/tests/build/t_widget
+          ./dm/host/tests/build/t_padmap
+          ./dm/host/tests/build/t_unit_level
+          for lang in en zh none sysen systw tags game; do
+            TMPDIR="$(pwd)/dm/host/tests/build" ./dm/host/tests/build/t_i18n "$lang"
+          done
+
+      - name: Compile native Metal/Objective-C helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C dm/gfx/tests t_hmap t_cover t_pace t_pso_skey t_refl t_builtin
+          ./dm/gfx/tests/t_hmap
+          ./dm/gfx/tests/t_cover
+          ./dm/gfx/tests/t_pace
+          ./dm/gfx/tests/t_pso_skey
+          # GPU execution and game rendering still require separate hardware smoke tests.
+
+      - name: Validate native Apple icon conversion
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="dm/ios/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          mkdir "$tmp/Game2Mobile.iconset"
+          for n in 16 32 128 256 512; do
+            sips -s format png -z "$n" "$n" "$src" --out "$tmp/Game2Mobile.iconset/icon_${n}x${n}.png" >/dev/null
+            twice=$((n*2))
+            sips -s format png -z "$twice" "$twice" "$src" --out "$tmp/Game2Mobile.iconset/icon_${n}x${n}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$tmp/Game2Mobile.iconset" -o "$tmp/Game2Mobile.icns"
+          test -s "$tmp/Game2Mobile.icns"
+          test "$(dd if="$tmp/Game2Mobile.icns" bs=4 count=1 2>/dev/null)" = "icns"
+          echo "Validated Game2Mobile.icns ($(stat -f '%z' "$tmp/Game2Mobile.icns") bytes)"
+
+      - name: Record validation boundaries
+        shell: bash
+        run: |
+          printf 'Native Apple ARM64 unit compilation: executed\n'
+          printf 'App/Xcode target link: NOT RUN (requires legally provided game files)\n'
+          printf 'On-device rendering/input/saves: NOT RUN\n'
+          printf 'Signed IPA/Release: NOT CREATED\n'
