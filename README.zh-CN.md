@@ -272,7 +272,7 @@ DM_MAC_M3=1 dm/tools/mac_app.sh      # macOS 15 – 25：产出 Game2Mobile M3.a
 
 ### 没有 Mac：壳 + 做包工具
 
-从本仓库的[发布页](https://github.com/jhaizhou-ops/d2r-mobile/releases)下载我们预先做好的、不含游戏内容的「壳」安装包（`Game2Mobile-shell.ipa`；iOS 18 – 25 用 `Game2Mobile-shell-ios18.ipa`），加上你自己的游戏文件，在 Windows 或 Linux 上做出安装包，再用自签工具签名装机。只有走这条路时，因为做包的电脑上没有苹果的着色器编译器，手机**第一次启动**要花约 7 分钟把着色器编完（一次性，带进度条）；用 Xcode 构建的包没有这一步。步骤与每一步的验证现状见 [docs/NO_XCODE.zh-CN.md](docs/NO_XCODE.zh-CN.md)。
+**本仓库尚未发布预构建的 Game2Mobile 安装壳。** 首先需在具备 Apple 构建环境的 Mac 上用 `dm/ios/tools/shell_build.sh` 生成与当前源码匹配的无游戏内容安装壳（计划文件名 `Game2Mobile-shell.ipa`；旧系统版本计划为 `Game2Mobile-shell-ios18.ipa`），之后才可以在 Windows / Linux 上使用你自己的游戏文件打包，再用自签工具签名装机。**原项目的 [Releases](https://github.com/jhaizhou-ops/d2r-mobile/releases) 仅作历史参考，不能当作 Game2Mobile 的已验证构建。**只有走这条路时，因为做包的电脑上没有苹果的着色器编译器，手机**第一次启动**要花约 7 分钟把着色器编完（一次性，带进度条）；用 Xcode 构建的包没有这一步。步骤与每一步的验证现状见 [docs/NO_XCODE.zh-CN.md](docs/NO_XCODE.zh-CN.md)。
 
 ## 已知限制
 
