@@ -1,0 +1,34 @@
+name: Validate Game2Mobile source
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate localization, scripts and source provenance
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 dm/ios/tools/dm_i18n.py --check
+          bash -n setup.sh dm/tools/mac_app.sh dm/ios/tools/shell_build.sh dm/ios/run.sh
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for relative in ("dm/tools/d2rm_pack.py", "dm/ios/tools/dm_i18n.py", "scripts/import_and_brand.py"):
+              ast.parse(Path(relative).read_text(encoding="utf-8"), filename=relative)
+          assert "# Game2Mobile" in Path("README.md").read_text(encoding="utf-8")
+          assert "# Game2Mobile" in Path("README.zh-CN.md").read_text(encoding="utf-8")
+          assert "CFBundleDisplayName: Game2Mobile" in Path("dm/ios/project.yml").read_text()
+          assert "Copyright (c) 2026 jhaizhou" in Path("LICENSE").read_text()
+          print("Game2Mobile source and branding static checks passed")
+          PY
