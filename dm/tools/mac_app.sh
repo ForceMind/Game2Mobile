@@ -24,6 +24,20 @@ make -C "$DM/host" ${M3:+dmhost_m3} > /dev/null
 MIN=$(make -s -C "$DM/host" print-macos-min${M3:+-m3})   # 最低系统版本：与编译宿主用的是同一个数（host/Makefile 的 MACOS_MIN / MACOS_MIN_M3） | minimum system version: the same number the host is compiled with (MACOS_MIN / MACOS_MIN_M3 in host/Makefile)
 APP="$OUT/$NAME.app"; rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$DM/host/dmhost${M3:+_m3}" "$APP/Contents/MacOS/Game2Mobile"
+# Build the macOS icon from the exact RGB artwork tracked by the iOS asset catalog.
+# The original game logo is intentionally not reused: both apps share our own brand.
+ICON_SRC="$DM/ios/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
+[ -s "$ICON_SRC" ] || { echo "🔴 Game2Mobile App icon missing: $ICON_SRC"; exit 3; }
+ICON_TMP=$(mktemp -d "${TMPDIR:-/tmp}/Game2Mobile-icon.XXXXXX")
+mkdir -p "$ICON_TMP/Game2Mobile.iconset"
+for SIZE in 16 32 128 256 512; do
+  sips -s format png -z "$SIZE" "$SIZE" "$ICON_SRC" --out "$ICON_TMP/Game2Mobile.iconset/icon_${SIZE}x${SIZE}.png" > /dev/null || exit 3
+  PIXELS=$(( SIZE * 2 ))
+  sips -s format png -z "$PIXELS" "$PIXELS" "$ICON_SRC" --out "$ICON_TMP/Game2Mobile.iconset/icon_${SIZE}x${SIZE}@2x.png" > /dev/null || exit 3
+done
+iconutil -c icns "$ICON_TMP/Game2Mobile.iconset" -o "$APP/Contents/Resources/Game2Mobile.icns" || { rm -rf "$ICON_TMP"; exit 3; }
+rm -rf "$ICON_TMP"
+[ -s "$APP/Contents/Resources/Game2Mobile.icns" ] || { echo "🔴 macOS icon generation failed"; exit 3; }
 LINK=${DM_MAC_LINK-1}; [ "$LINK" != 0 ] || LINK=; RES="$APP/Contents/Resources"; : > "$RES/paths.txt"
 if [ -n "$LINK" ]; then echo "product=$P" >> "$RES/paths.txt"; else cp -R "$P" "$RES/product"; fi
 cp "$DM/gfx/nvn/shader_map.tsv" "$APP/Contents/Resources/shader_map.tsv"
@@ -57,6 +71,7 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>CFBundleDisplayName</key><string>$NAME</string>
 <key>CFBundleIdentifier</key><string>$BID</string>
 <key>CFBundleExecutable</key><string>Game2Mobile</string>
+<key>CFBundleIconFile</key><string>Game2Mobile.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$VER</string>
 <key>CFBundleVersion</key><string>$BUILD</string>
@@ -84,5 +99,6 @@ done ) || exit 3; fi
 BIN_MIN=$(otool -l "$APP/Contents/MacOS/Game2Mobile" | awk '$1=="minos"{print $2; exit}'); PL_MIN=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist")
 [ -n "$BIN_MIN" ] && [ "$BIN_MIN" = "$PL_MIN" ] || { echo "🔴 最低系统版本对不上：程序本体 ${BIN_MIN:-读不到}，Info.plist ${PL_MIN}"; exit 3; }
 ARCHS=$(lipo -archs "$APP/Contents/MacOS/Game2Mobile"); [ "$ARCHS" = arm64 ] || { echo "🔴 程序本体的架构不是只有 arm64：${ARCHS}"; exit 3; }
+python3 "$DM/../scripts/release_checks.py" macapp "$APP" || { echo "🔴 macOS app package failed branding check"; exit 3; }
 codesign --force -s - "$APP" > /dev/null 2>&1 || { echo "🔴 本地签名失败"; exit 3; }
 echo "MACAPP ${APP}（${M3:+老接口版，}版本 ${VER} 构建 ${BUILD}，最低系统 macOS ${MIN}，产物 $(basename "$P")，$(du -sh "$APP" | cut -f1)${LINK:+，不带派生物：只能在本机跑}）"

@@ -1,0 +1,43 @@
+name: Sync Game2Mobile App icon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - assets/brand/game2mobile-icon.svg
+      - scripts/render_app_icon.py
+      - .github/workflows/render-brand-assets.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render-icon:
+    if: github.repository == 'ForceMind/Game2Mobile'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Render original, game-independent app icon
+        run: |
+          python3 -m pip install --disable-pip-version-check 'CairoSVG==2.8.2' 'Pillow==12.3.0'
+          python3 scripts/render_app_icon.py
+          python3 scripts/render_app_icon.py --check
+      - name: Commit generated icon to main
+        run: |
+          git add dm/ios/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png
+          if git diff --cached --quiet; then
+            echo "Icon unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "assets: render original Game2Mobile iOS icon from SVG"
+          git push origin HEAD:main

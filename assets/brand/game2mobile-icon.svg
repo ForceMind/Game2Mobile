@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Game2Mobile abstract game controller inside a mobile device">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101D27"/>
+      <stop offset="0.55" stop-color="#0C1822"/>
+      <stop offset="1" stop-color="#06111A"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8BFAB4"/>
+      <stop offset="0.55" stop-color="#B6FF69"/>
+      <stop offset="1" stop-color="#43DDC1"/>
+    </linearGradient>
+    <linearGradient id="gamepad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#40DDBB"/>
+      <stop offset="0.52" stop-color="#8CEEA2"/>
+      <stop offset="1" stop-color="#C0FF61"/>
+    </linearGradient>
+    <radialGradient id="halo"><stop offset="0" stop-color="#4BCC9B" stop-opacity=".26"/><stop offset="1" stop-color="#4BCC9B" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <circle cx="532" cy="501" r="440" fill="url(#halo)"/>
+  <!-- Device silhouette: a distinctive tall frame surrounding a play controller -->
+  <rect x="284" y="128" width="456" height="768" rx="105" fill="#142B35" stroke="url(#rim)" stroke-width="30"/>
+  <rect x="316" y="160" width="392" height="704" rx="77" fill="#0A1D27" stroke="#33504D" stroke-width="5"/>
+  <rect x="461" y="184" width="102" height="14" rx="7" fill="#3C615A"/>
+  <!-- Gameplay motif; an original gamepad shape, not from any game franchise -->
+  <path d="M368 436 C389 415 420 405 467 405 H558 C603 405 633 415 655 436 C680 459 692 504 708 558 C721 602 711 634 687 648 C662 663 635 652 610 630 L560 587 H464 L414 630 C389 652 362 663 337 648 C312 633 302 602 316 558 C332 504 343 459 368 436 Z" fill="url(#gamepad)"/>
+  <path d="M368 436 C389 415 420 405 467 405 H558 C603 405 633 415 655 436" fill="none" stroke="#E9FFBA" stroke-width="9" opacity=".75" stroke-linecap="round"/>
+  <!-- D-pad: cut from the light gamepad silhouette in deep navy -->
+  <rect x="398" y="466" width="28" height="112" rx="8" fill="#11333A"/>
+  <rect x="356" y="508" width="112" height="28" rx="8" fill="#11333A"/>
+  <circle cx="606" cy="480" r="20" fill="#11333A"/>
+  <circle cx="645" cy="524" r="20" fill="#11333A"/>
+  <circle cx="568" cy="524" r="15" fill="#12424A" opacity=".6"/>
+  <path d="M492 548 L533 548" stroke="#12363E" stroke-width="11" stroke-linecap="round"/>
+  <!-- Home-indicator style underline, a minimal mobile cue -->
+  <rect x="447" y="809" width="130" height="9" rx="4.5" fill="#81F3AF" opacity=".85"/>
+</svg>
