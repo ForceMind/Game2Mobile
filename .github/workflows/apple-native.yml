@@ -108,6 +108,40 @@ jobs:
             -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
             dm/ios/Sources/front_ios.m
 
+      - name: Generate real ARM64 objects from production Metal code
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Syntax-only is not sufficient: also run Apple clang codegen and
+          # verify that the emitted Mach-O targets are ARM64.
+          ios_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          out="${RUNNER_TEMP:-/tmp}/game2mobile-native-objects"
+          mkdir -p "$out"
+          xcrun --sdk macosx clang -fobjc-arc -O0 -c \
+            -mmacosx-version-min=26.0 -I dm/gfx/nvn/include \
+            dm/gfx/nvn/nvn_mtl.m -o "$out/metal4-macos26.o"
+          xcrun --sdk macosx clang -fobjc-arc -O0 -c \
+            -mmacosx-version-min=15.0 -DDM_NVN_M3=1 -I dm/gfx/nvn/include \
+            dm/gfx/nvn/nvn_mtl.m -o "$out/m3-macos15.o"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -isysroot "$ios_sdk" \
+            -fobjc-arc -O0 -c -I dm/gfx/nvn/include \
+            dm/gfx/nvn/nvn_mtl.m -o "$out/metal4-ios26.o"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios18.0 -isysroot "$ios_sdk" \
+            -DDM_NVN_M3=1 -fobjc-arc -O0 -c -I dm/gfx/nvn/include \
+            dm/gfx/nvn/nvn_mtl.m -o "$out/m3-ios18.o"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -isysroot "$ios_sdk" \
+            -fobjc-arc -O0 -c -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
+            dm/ios/Sources/front_ios.m -o "$out/front-ios26.o"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 -isysroot "$ios_sdk" \
+            -fobjc-arc -O0 -c -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
+            dm/ios/Sources/main.m -o "$out/main-ios26.o"
+          for object in "$out"/*.o; do
+            test -s "$object"
+            test "$(lipo -archs "$object")" = arm64
+            echo "$(basename "$object"): $(stat -f '%z' "$object") bytes; $(file -b "$object")"
+          done
+          echo "ARM64 Mach-O code generation completed; full game linking remains untested."
+
       - name: Type-check Apple-hosted asset downloader extension
         shell: bash
         run: |
