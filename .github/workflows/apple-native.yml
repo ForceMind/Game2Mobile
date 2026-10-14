@@ -108,6 +108,17 @@ jobs:
             -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
             dm/ios/Sources/front_ios.m
 
+      - name: Type-check Apple-hosted asset downloader extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This tests the target code with the same Apple iOS SDK, but does
+          # not package or upload Apple-hosted commercial game asset packs.
+          ios_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos swiftc -swift-version 6 -parse-as-library \
+            -target arm64-apple-ios26.0 -sdk "$ios_sdk" -typecheck \
+            dm/ios/RomfsDownloader/RomfsDownloader.swift
+
       - name: Validate native Apple icon conversion
         shell: bash
         run: |
