@@ -82,6 +82,22 @@ jobs:
           ./dm/gfx/tests/t_pso_skey
           # GPU execution and game rendering still require separate hardware smoke tests.
 
+      - name: Syntax-check production Metal backend (both APIs) and iOS frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          # These translation units contain the real graphics and UIKit frontend.
+          # Compile-checking them does not require user game assets or linking.
+          xcrun --sdk macosx clang -fobjc-arc -fsyntax-only -mmacosx-version-min=26.0 \
+            -I dm/gfx/nvn/include dm/gfx/nvn/nvn_mtl.m
+          xcrun --sdk macosx clang -fobjc-arc -fsyntax-only -mmacosx-version-min=15.0 \
+            -DDM_NVN_M3=1 -I dm/gfx/nvn/include dm/gfx/nvn/nvn_mtl.m
+          ios_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios26.0 \
+            -isysroot "$ios_sdk" -fobjc-arc -fsyntax-only \
+            -I dm/host -I dm/ios/Sources -I dm/gfx/nvn/include \
+            dm/ios/Sources/front_ios.m
+
       - name: Validate native Apple icon conversion
         shell: bash
         run: |
