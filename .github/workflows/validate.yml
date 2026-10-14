@@ -32,3 +32,17 @@ jobs:
           assert "Copyright (c) 2026 jhaizhou" in Path("LICENSE").read_text()
           print("Game2Mobile source and branding static checks passed")
           PY
+
+      - name: Offline tests (no Apple SDK or proprietary game files)
+        run: |
+          python3 dm/i18n/scan_literals.py
+          python3 dm/host/tests/native_write_scan.py --selftest dm/host
+          python3 dm/host/tests/mode_scan.py dm
+          python3 dm/ios/tests/test_input_pair_check.py
+          python3 dm/ios/tests/test_touch_receipt.py --source dm/ios/Sources/front_ios.m
+          python3 dm/gfx/tests/test_tbdr_budget.py
+          python3 dm/tools/test_l3reg.py
+          make --no-print-directory -C dm/ios/tests t_touch_controls t_binding_freshness t_portal_sequence
+          ./dm/ios/tests/t_touch_controls
+          ./dm/ios/tests/t_binding_freshness
+          ./dm/ios/tests/t_portal_sequence
