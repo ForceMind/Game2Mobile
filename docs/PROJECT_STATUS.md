@@ -24,7 +24,9 @@ Game2Mobile is currently a Diablo II: Resurrected compatibility project, not a u
 
 - No signed app, IPA, TestFlight release or device benchmarks have been produced or independently tested here.
 - An Apple build environment and legally obtained game files are needed.
-- The app icon and original upstream screenshot links have not been redesigned. Renamed app IDs/data folders may require save migration; back up saves first.
+- The app icon is now independent ([SVG source](../assets/brand/game2mobile-icon.svg), [iOS PNG](../dm/ios/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png)); macOS generates an ICNS file from that artwork at build time. Screenshots still link to original upstream reference assets.
+- Renamed app IDs/data folders may require save migration; back up saves first.
+- [中文构建及发布验收清单](BUILD_AND_RELEASE.zh-CN.md) / [English build and release checklist](BUILD_AND_RELEASE.md) defines all remaining Apple builds and device tests.
 
 ## Entry points
 

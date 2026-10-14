@@ -4,6 +4,8 @@
 
 > **发布状态：** 本仓库目前没有 Game2Mobile 预构建 IPA 或 macOS App，请先从源码构建；文中的安装包文件名指后续本项目产物。
 
+> **开发与维护：** [构建与发布验收清单](docs/BUILD_AND_RELEASE.zh-CN.md) · [独立品牌图标](assets/brand/README.md) · [源码审查记录](docs/REPO_AUDIT_2026-10-15.zh-CN.md)。
+
 
 **开源的《暗黑破坏神 II：狱火重生》术士君临 iOS / macOS 兼容层。** 把你自己购买的 Nintendo Switch 版游戏（含「术士君临」资料片）完整带到 iPhone、iPad 和 Mac 上：原版内核原生执行，整套操作为触屏重做，稳定 60 帧，一秒进局。现在也有原生的 macOS 版（第一版）：Apple 芯片的 Mac 上双击启动，键盘、鼠标、手柄都能用。
 
