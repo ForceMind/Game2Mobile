@@ -103,7 +103,7 @@ def staged_project(
             if not link.resolve().is_relative_to(destination.resolve()):
                 raise RuntimeError(f"Generated source escapes isolated staging: {link}")
         main = ios / "Gen/main/main.c"
-        if not main.is_symlink() or main.resolve() != destination / "dm/host/main.c":
+        if not main.is_symlink() or main.resolve() != (destination / "dm/host/main.c").resolve():
             raise RuntimeError("iOS host entry is not linked to actual dm/host/main.c")
         if not any(p.name.endswith("nvn__nvn_mtl.m") for p in links):
             raise RuntimeError("Native NVN/Metal backend missing from host source set")
