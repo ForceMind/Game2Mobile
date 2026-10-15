@@ -159,6 +159,8 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                  romfs: Path) -> dict:
     if not workspace_is_safe(workspace):
         raise StageError("environment", "DM_ROOT must be outside the Git checkout")
+    if action != "plan" and not workspace_is_safe(romfs):
+        raise StageError("environment", "Licensed RomFS files must not be inside Git")
     if action != "plan":
         checked_platform()
         tracked_clean()
@@ -181,6 +183,9 @@ def run_pipeline(action: str, profile: str, workspace: Path,
     env["DM_ROOT"] = str(workspace)
     env["DM_ROMFS_SRC"] = str(romfs)
     env["DM_IOS_M3"] = "1" if profile == "m3" else "0"
+    venv_bin = workspace / "build/cache/dm/venv/bin"
+    if venv_bin.is_dir():
+        env["PATH"] = str(venv_bin) + os.pathsep + env.get("PATH", "")
     record = build_record(commit, profile)
     stages = STAGE_COMMANDS if action == "all" else (action,)
 
@@ -193,10 +198,15 @@ def run_pipeline(action: str, profile: str, workspace: Path,
             elif stage == "prepare":
                 execute(stage, ["bash", "setup.sh"], cwd=ROOT,
                         env=env, evidence_dir=evidence)
+                venv_bin = workspace / "build/cache/dm/venv/bin"
+                if venv_bin.is_dir():
+                    env["PATH"] = str(venv_bin) + os.pathsep + env.get("PATH", "")
             elif stage == "headers":
+                # Always rebuild tables: make timestamps alone cannot detect
+                # a replaced RomFS at the same configured source path.
                 execute(
                     stage,
-                    ["make", "-s", "-C", "dm/host", *HEADER_NAMES,
+                    ["make", "-B", "-s", "-C", "dm/host", *HEADER_NAMES,
                      "ROMFS=" + str(romfs)],
                     cwd=ROOT, env=env, evidence_dir=evidence,
                 )
