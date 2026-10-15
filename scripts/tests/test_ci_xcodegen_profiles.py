@@ -39,7 +39,7 @@ class XcodeGenIsolationTest(unittest.TestCase):
             private.write_bytes(b"do-not-copy-private-game-data")
             untracked = src / "Sources/local_credential.txt"
             untracked.write_text("DO_NOT_COPY_ME", encoding="utf-8")
-            staged = staged_project(base / "isolated", root=root)
+            staged = staged_project(base / "isolated", root=root, use_makefile_sources=False)
             self.assertEqual((staged / "project.yml").read_text(), "name: DmIOS\n")
             self.assertFalse((staged / "local.env").exists())
             self.assertFalse((staged / "Sources/local_credential.txt").exists())
