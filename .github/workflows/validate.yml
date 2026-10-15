@@ -54,3 +54,12 @@ jobs:
       - name: Regression-test diagnostics packaging and Simulator selection
         run: |
           python3 -m unittest discover -s ci/ios-diagnostics/tests -p 'test_*.py' -v
+
+      - name: Validate owner-only M1 handoff without private inputs
+        run: |
+          python3 scripts/m1_local_pipeline.py plan --profile metal4
+          python3 scripts/m1_local_pipeline.py plan --profile m3
+          for path in dm/host/dm_hud_exp.h dm/host/dm_bright_levels.inc dm/host/dm_vault_tab.h; do
+            git check-ignore -q "$path"
+          done
+          echo "Verified private headers remain ignored and plan requires no game inputs."
