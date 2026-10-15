@@ -48,6 +48,12 @@ A later [successful real-source CI run](https://github.com/ForceMind/Game2Mobile
 
 The staging operation copies only git-tracked `dm/` source files, never local untracked game assets or signing files. This is **not** a full DmIOS compile, link, IPA, signed app, or device test.
 
+## Genuine unsigned iOS diagnostics App builds (not the game)
+
+A standalone, game-free diagnostic App has been **compiled and linked by Xcode** for both Apple Silicon iPhoneOS and iOS Simulator, then checked for identity, ARM64 executable, original brand icon and absence of game resource file types. The initial [successful artifact CI run](https://github.com/ForceMind/Game2Mobile/actions/runs/38736461658) uploaded explicitly **NON-PLAYABLE** ZIP outputs and JSON reports. See [diagnostic target documentation](../ci/ios-diagnostics/README.md).
+
+**No Simulator runtime launch is confirmed.** In a [subsequent attempted launch](https://github.com/ForceMind/Game2Mobile/actions/runs/38736867676), the simulator boot check finished but `simctl install` timed out after 120 seconds. This does not demonstrate a game build, a physical-device launch, or a running diagnostic UI. Further Simulator installation is a separately, manually triggered bounded check; verified compile outputs are not held hostage by shared runner installation timeouts.
+
 ## Prerequisites for the first Apple build
 
 Use an Apple Silicon Mac with a supported Xcode/Apple SDK, XcodeGen, .NET SDK, spirv-cross and Python. You must legally supply matching Nintendo Switch Diablo II: Resurrected game files: `ExeFS/main`, `sdk`, `subsdk0` and `RomFS/data`. Do not upload game assets or Apple signing credentials to GitHub.

@@ -44,6 +44,12 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 
 **注意：** 真实的是宿主源码路径和工程生成过程，不是商业游戏二进制、资产、着色器或已链接 App。M1 内部测试包仍未产出。
 
+### 独立 iOS 构建诊断 App（不含游戏）
+
+已在 [Apple Silicon CI](https://github.com/ForceMind/Game2Mobile/actions/runs/38736461658) 中使用真实 Xcode 完整编译、链接、封装 **iPhoneOS ARM64** 和 **iOS Simulator ARM64** 两套诊断 App（使用 Game2Mobile 原创图标）；包结构、Bundle ID、资源过滤均通过自动检查，并产出注明 **NON-PLAYABLE** 的临时 ZIP 和 JSON 报告。代码位于 [ci/ios-diagnostics](../ci/ios-diagnostics/README.md)。这套独立测试 App 只能验证 Apple App 构建/打包链，不链接实际游戏宿主。
+
+模拟器实际安装运行仍然**未获通过**：在 [首次运行尝试](https://github.com/ForceMind/Game2Mobile/actions/runs/38736867676) 中，`simctl bootstatus` 通过，但 `simctl install` 超过 120 秒超时，因此没有成功启动或获取运行截图；这是当前 runner 的安装超时现象，尚未证明应用本身存在或不存在启动缺陷。后续将模拟器运行作为单独手动触发的限时任务，不阻断已验证的 App 二进制构建交付。
+
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）
 
 至少需要 Apple Silicon Mac、适合目标系统版本的 Xcode/Apple SDK、XcodeGen、.NET SDK、spirv-cross、Python，以及用户自己合法取得且**版本匹配**的《暗黑破坏神 II：狱火重生》Switch 版 `ExeFS/main`、`sdk`、`subsdk0` 与 `RomFS/data`。
