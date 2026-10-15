@@ -80,6 +80,14 @@ jobs:
           fi
           echo "Compiled unsigned ARM64 simulator diagnostics app."
 
+      - name: Actually install and launch diagnostics in iOS Simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/g2m-simulator/Build/Products/Release-iphonesimulator/Game2MobileDiagnostics.app"
+          python3 ci/ios-diagnostics/simulator_smoke.py "$app" \
+            --output "$RUNNER_TEMP/g2m-diagnostics-artifacts"
+
       - name: Verify and package both non-playable diagnostics apps
         shell: bash
         run: |
