@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Verify all four real XcodeGen project variants on a Mac without game assets.
 
-Only tracked dm/ios files are copied into an isolated temporary directory.
-Placeholder Gen/* build inputs are CI fixtures, NOT real game resources.
+Only tracked dm/ files are copied into an isolated temporary directory.
+Actual host source links are derived from dm/host/Makefile. Generated game
+resource inputs remain clearly marked, inert CI fixtures.
 No signing, pre-build asset generation, compiler linking or device launch occurs.
 
 Usage: python3 scripts/ci_xcodegen_profiles.py --report /tmp/xcodegen-report.json
@@ -46,14 +47,24 @@ def command(args: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
     return result.stdout
 
 
-def staged_project(destination: Path, *, root: Path = ROOT) -> Path:
-    """Copy git-tracked iOS files only: never copy local signing keys or game assets."""
+def staged_project(
+    destination: Path, *, root: Path = ROOT, use_makefile_sources: bool = True
+) -> Path:
+    """Copy only tracked dm sources and derive real iOS host source links.
+
+    Untracked ExeFS/RomFS, Gen assets, local.env and signing materials are
+    never staged. The default path expands the REAL dm/host/Makefile through
+    dm/ios/tools/gen_build.py without executing a proprietary game build.
+    """
     listed = subprocess.check_output(
-        ["git", "-C", str(root), "ls-files", "-z", "--", IOS_REL.as_posix()]
+        ["git", "-C", str(root), "ls-files", "-z", "--", "dm"]
     )
     names = [os.fsdecode(raw) for raw in listed.split(b"\0") if raw]
     if len(names) < 50 or "dm/ios/project.yml" not in names:
         raise RuntimeError("Expected tracked iOS project files; wrong git checkout?")
+    if use_makefile_sources and "dm/host/Makefile" not in names:
+        raise RuntimeError("Host Makefile is missing; cannot generate real sources")
+
     for name in names:
         rel = Path(name)
         if rel.is_absolute() or ".." in rel.parts:
@@ -63,29 +74,61 @@ def staged_project(destination: Path, *, root: Path = ROOT) -> Path:
             raise RuntimeError(f"Unexpected source symlink: {rel}")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+
     ios = destination / IOS_REL
     for rel in RESOURCE_DIRS:
+        if use_makefile_sources and rel in {"Gen/src", "Gen/main"}:
+            # gen_build.py requires these directories to be absent initially.
+            continue
         directory = ios / rel
         directory.mkdir(parents=True, exist_ok=True)
         if rel not in {"Gen/src", "Gen/main"}:
             (directory / ".ci-placeholder").write_text(
                 "CI fixture only; not a game asset.\n", encoding="utf-8"
             )
-    (ios / "Gen/src/ci_stub.c").write_text(
-        "/* CI fixture only: never ship in game builds. */\n"
-        "int game2mobile_ci_stub(void) { return 0; }\n", encoding="utf-8"
-    )
-    (ios / "Gen/main/main.c").write_text(
-        "/* CI fixture only: never ship in game builds. */\n"
-        "int game2mobile_ci_entry(void) { return 0; }\n", encoding="utf-8"
-    )
+
+    if use_makefile_sources:
+        config = command(
+            [sys.executable, str(ios / "tools/gen_build.py"),
+             str(destination / "dm/host"), str(ios / "Gen")],
+            cwd=ios,
+        )
+        (ios / "Gen/dm.xcconfig").write_text(config, encoding="utf-8")
+        links = sorted((ios / "Gen/src").iterdir())
+        if len(links) < 80:
+            raise RuntimeError(f"Host Makefile expanded to only {len(links)} sources")
+        for link in links:
+            if not link.is_symlink() or not link.exists():
+                raise RuntimeError(f"Generated host source link is broken: {link.name}")
+            if not link.resolve().is_relative_to(destination.resolve()):
+                raise RuntimeError(f"Generated source escapes isolated staging: {link}")
+        main = ios / "Gen/main/main.c"
+        if not main.is_symlink() or main.resolve() != destination / "dm/host/main.c":
+            raise RuntimeError("iOS host entry is not linked to actual dm/host/main.c")
+        if not any(p.name.endswith("nvn__nvn_mtl.m") for p in links):
+            raise RuntimeError("Native NVN/Metal backend missing from host source set")
+        if "HEADER_SEARCH_PATHS = " not in config:
+            raise RuntimeError("gen_build.py did not generate host header paths")
+        print(f"Makefile → gen_build.py: {len(links)} real tracked sources + main.c",
+              flush=True)
+    else:
+        # Only used by the isolation unit test's synthetic git checkout.
+        (ios / "Gen/src/ci_stub.c").write_text(
+            "/* CI fixture only: never ship in game builds. */\n"
+            "int game2mobile_ci_stub(void) { return 0; }\n", encoding="utf-8"
+        )
+        (ios / "Gen/main/main.c").write_text(
+            "/* CI fixture only: never ship in game builds. */\n"
+            "int game2mobile_ci_entry(void) { return 0; }\n", encoding="utf-8"
+        )
+        (ios / "Gen/dm.xcconfig").write_text(
+            "HEADER_SEARCH_PATHS = $(inherited)\n"
+            "OTHER_CFLAGS = $(inherited)\n"
+            "OTHER_LDFLAGS = $(inherited)\n", encoding="utf-8"
+        )
+
     (ios / "Gen/embed.S").write_text(
         "/* CI fixture only. No licensed code is embedded. */\n", encoding="utf-8"
-    )
-    (ios / "Gen/dm.xcconfig").write_text(
-        "HEADER_SEARCH_PATHS = $(inherited)\n"
-        "OTHER_CFLAGS = $(inherited)\n"
-        "OTHER_LDFLAGS = $(inherited)\n", encoding="utf-8"
     )
     return ios
 
