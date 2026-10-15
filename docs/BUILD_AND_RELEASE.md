@@ -29,6 +29,25 @@ The [`apple-native.yml`](../.github/workflows/apple-native.yml) workflow runs on
 
 **Native object code proof:** [dual-platform run at `fc5bb87e`](https://github.com/ForceMind/Game2Mobile/actions/runs/38613049859) emitted **10 real ARM64 Mach-O `.o` objects** on macOS 26 for both Metal API variants, iOS front-end/entry, and the production guest loader/host entry on iOS/macOS. A separate actual **macOS 15 ARM64 runner** also compiled the older Metal M3 backend and executed asset-free input and graphics math tests. These are genuinely executed compiler checks; they are not game-integration or playable-app evidence. The previously mismatched iOS 26.4 downloader extension target was aligned to the host app's iOS 26.0 target following successful Swift 6 type checking. Apple-hosted asset downloads on iOS 26.0 still require on-device testing.
 
+## Verified XcodeGen project generation (four actual Apple projects)
+
+An Apple Silicon macOS 26 runner with **XcodeGen 2.46.0 and Xcode 26.6**
+successfully executed actual `xcodegen generate`, `xcodebuild -list -json`,
+and `xcodebuild -showBuildSettings -json` for all four profiles: paid/free
+accounts × Metal 4/iOS 26 or M3/iOS 18.
+
+The app deployment target, CPU flags, extension target presence/absence, and
+minimum OS of the managed asset downloader were checked in the **generated
+Xcode projects**, not just in a YAML string transform.
+
+[Successful CI run](https://github.com/ForceMind/Game2Mobile/actions/runs/38667796078) ·
+[Test implementation](../scripts/ci_xcodegen_profiles.py) ·
+[Isolation and limitations](XCODEGEN_CI.md).
+
+The CI input tree contains only tracked source plus inert `Gen/` placeholders;
+neither the game binaries nor game-derived assets are available. This is
+**not** a full DmIOS compile, link, IPA, signed app, or device test.
+
 ## Prerequisites for the first Apple build
 
 Use an Apple Silicon Mac with a supported Xcode/Apple SDK, XcodeGen, .NET SDK, spirv-cross and Python. You must legally supply matching Nintendo Switch Diablo II: Resurrected game files: `ExeFS/main`, `sdk`, `subsdk0` and `RomFS/data`. Do not upload game assets or Apple signing credentials to GitHub.

@@ -27,3 +27,14 @@ still be performed with legitimately obtained matching ExeFS/RomFS, generated
 assets, developer signing and physical-device tests.
 
 中文：本检查会使用真实的 XcodeGen 与 Xcode 工具链，实际生成并检查四类工程配置；不包含、不复制也不上传任何游戏资源或签名材料。生成的 `Gen/` 内容是临时占位文件，不可用于真实发布。
+
+## Verified CI run / 实际验证记录
+
+- Environment: **macos-26 ARM64**, Xcode **26.6**, XcodeGen **2.46.0**
+- Validated profiles: paid-metal4, free-metal4, paid-m3, free-m3
+- [Passing GitHub Actions workflow](https://github.com/ForceMind/Game2Mobile/actions/runs/38667796078)
+- A JSON report is saved as the `game2mobile-xcodegen-profiles` Actions artifact.
+- A dedicated Python regression test ensures that untracked local
+  `dm/ios/local.env` and game-derived `Gen/` content are excluded from staging.
+
+工程生成通过并不等于正式 iOS 应用链接成功，不能据此宣布已有可安装版本。
