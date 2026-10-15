@@ -1,0 +1,113 @@
+name: iOS build diagnostics (asset-free)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-diagnostics.yml'
+      - 'ci/ios-diagnostics/**'
+      - 'dm/ios/Assets.xcassets/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-diagnostics:
+    name: "Unsigned ARM64 iOS app + Simulator"
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm Xcode and install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphonesimulator --show-sdk-path
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate independent diagnostics project
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ci/ios-diagnostics
+          xcodegen generate -q --spec project.yml
+          xcodebuild -list -project Game2MobileDiagnostics.xcodeproj
+
+      - name: Build actual ARM64 iPhoneOS app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/g2m-device.log"
+          if ! xcodebuild \
+              -project ci/ios-diagnostics/Game2MobileDiagnostics.xcodeproj \
+              -scheme Game2MobileDiagnostics \
+              -configuration Release -sdk iphoneos \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath "$RUNNER_TEMP/g2m-device" \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build > "$log" 2>&1; then
+            grep -E 'error:|BUILD FAILED' "$log" | head -40 || true
+            tail -55 "$log"
+            exit 1
+          fi
+          echo "Compiled unsigned ARM64 iOS diagnostics app (not a game)."
+
+      - name: Build ARM64 iOS Simulator app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/g2m-simulator.log"
+          if ! xcodebuild \
+              -project ci/ios-diagnostics/Game2MobileDiagnostics.xcodeproj \
+              -scheme Game2MobileDiagnostics \
+              -configuration Release -sdk iphonesimulator \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath "$RUNNER_TEMP/g2m-simulator" \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build > "$log" 2>&1; then
+            grep -E 'error:|BUILD FAILED' "$log" | head -40 || true
+            tail -55 "$log"
+            exit 1
+          fi
+          echo "Compiled unsigned ARM64 simulator diagnostics app."
+
+      - name: Verify and package both non-playable diagnostics apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/g2m-diagnostics-artifacts"
+          mkdir -p "$out"
+          for platform in iphoneos iphonesimulator; do
+            root="$RUNNER_TEMP/g2m-device"
+            if [ "$platform" = iphonesimulator ]; then root="$RUNNER_TEMP/g2m-simulator"; fi
+            app="$root/Build/Products/Release-$platform/Game2MobileDiagnostics.app"
+            python3 ci/ios-diagnostics/verify_artifact.py "$app" \
+              --platform "$platform" --sha "$GITHUB_SHA" \
+              --report "$out/diagnostics-$platform.json"
+            ditto -c -k --sequesterRsrc --keepParent "$app" \
+              "$out/NOT-PLAYABLE-Game2Mobile-Diagnostics-$platform.zip"
+          done
+          cat > "$out/READ-ME-FIRST.txt" <<'EOF'
+          These are UNSIGNED, NON-PLAYABLE Game2Mobile diagnostic app builds.
+          The game runtime and commercial game files are NOT included.
+          These are NOT a Game2Mobile game IPA or public release.
+          The iphoneos build must be signed before installation on a phone.
+          EOF
+          ls -lh "$out"
+
+      - name: Upload only non-playable smoke artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game2Mobile-DIAGNOSTICS-NOT-PLAYABLE
+          path: ${{ runner.temp }}/g2m-diagnostics-artifacts/
+          if-no-files-found: error
+          retention-days: 14
