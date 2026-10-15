@@ -57,7 +57,13 @@ python3 scripts/ci_production_compile.py \
 
 ## 验收与安全边界
 
-私有日志、逐文件编译结果和安全的汇总 JSON 保存到 `DM_ROOT/m1-private-evidence/<commit>/<profile>/`。目录不在 Git 工作树内，脚本不执行任何 `git add`、GitHub API 上传或远程发布操作。
+每次运行都会在 `DM_ROOT/m1-private-evidence/<commit>/<profile>/run-*/` 创建**全新的**私有证据目录，包含只属于本次运行的 `m1-summary.json`、阶段日志以及完整构建专用的 `derived-data/`。同一提交和配置重复运行也不会覆盖历史证据；不会沿用上一次的 `DmIOS.app`。
+
+执行前会清除继承的 `DM_GEN_ONLY`、`DM_OUT` 和 `DM_IOS_DD` 等可能跳过真正编译或复用旧产物的参数。本次 `DM_IOS_DD` 强制指向独立的 `derived-data/`。即使某个本地配置再次设置跳过编译参数，**没有本次生成的 App 就会失败**，绝不接受历史包代替本次验证。
+
+原始日志在启动子进程**之前**便以 `0600` 权限创建，私有目录采用 `0700`，报告独占创建，禁止复用或通过符号链接指入 Git 工作树。脚本不执行任何 `git add`、GitHub API 上传或远程发布操作。日志可能包含本机路径或签名信息，**请勿直接贴到公开 Issue 或 PR**。
+
+只有 `all` 五阶段完整通过，摘要才会标记 `end_to_end_build_stages_verified=true`；单独执行某个阶段仅返回 `partial`，不能据此宣称完整 M1 成功。
 
 - 若三个文件缺失、为空、包含明显的 CI 占位标记、是符号链接，脚本立即失败；**不会伪造游戏数据以凑齐 91/91**。
 - 必须严格编译 **91/91** 且无其他错误，才算该编译阶段通过。若失败，保留本机日志供定位；对外可分享的 JSON 不包含头文件原文、密钥、设备标识或原始编译报错。
@@ -68,5 +74,7 @@ python3 scripts/ci_production_compile.py \
 参见 [完整编译覆盖率报告](PRODUCTION_COMPILE_COVERAGE.md) 和 [M1 Issue #1](https://github.com/ForceMind/Game2Mobile/issues/1)。
 
 ## English summary
+
+Every owner-only execution uses a unique private `run-*/` directory with a fresh Xcode DerivedData path, fail-closed App validation and `0600` log/summary files. It clears inherited `DM_GEN_ONLY` and other stale-output flags; individual stages are labeled `partial`, never end-to-end success. Do not paste raw local build logs into public issues.
 
 Run `python3 scripts/m1_local_pipeline.py plan` for a safe preview. On an Apple Silicon Mac with your legally obtained, version-matched game files and Apple signing configured locally, run `python3 scripts/m1_local_pipeline.py all --profile metal4`. This regenerates the three **private** RomFS-derived headers, verifies the real 91-source ARM64 compile with no synthetic substitutes, and attempts a locally signed real `DmIOS.app` build. No commercial game files, keys, logs or App bundles are uploaded to GitHub. A successful signed build is **not** proof of game launch or real-device playability.
