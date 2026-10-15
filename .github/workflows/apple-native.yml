@@ -221,3 +221,34 @@ jobs:
           ./dm/gfx/tests/t_cover
           ./dm/gfx/tests/t_pace
           echo "macOS 15 M3 compile and asset-free tests passed; complete legacy app not tested."
+
+  ios-project-generation:
+    name: XcodeGen: 4 iOS projects (asset-free)
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen if necessary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+          xcodebuild -version
+      - name: Generate all signing/Metal profiles and check Xcode targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_xcodegen_profiles.py \
+            --report "$RUNNER_TEMP/game2mobile-xcodegen-report.json"
+          python3 -m json.tool "$RUNNER_TEMP/game2mobile-xcodegen-report.json"
+      - name: Save asset-free project verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: game2mobile-xcodegen-profiles
+          path: \${{ runner.temp }}/game2mobile-xcodegen-report.json
+          if-no-files-found: error
+          retention-days: 14
