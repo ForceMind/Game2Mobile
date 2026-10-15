@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
+import sys
 from pathlib import Path
 import plistlib
 from unittest import mock
@@ -14,7 +17,8 @@ from scripts.private_build_inputs import (
 )
 from scripts.m1_local_pipeline import (
     ROOT, StageError, build_plan, build_record, validate_app,
-    workspace_is_safe,
+    execute, new_private_evidence_dir, private_environment, run_pipeline,
+    workspace_is_safe, write_private_json,
 )
 
 
@@ -139,6 +143,116 @@ class OwnerPipelineTests(unittest.TestCase):
                 ]
                 with self.assertRaisesRegex(StageError, "code signature"):
                     validate_app(app)
+
+
+class FreshBuildEvidenceTests(unittest.TestCase):
+    def test_evidence_runs_are_unique_and_private(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            first = new_private_evidence_dir(workspace, "a" * 40, "metal4")
+            second = new_private_evidence_dir(workspace, "a" * 40, "metal4")
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.name.startswith("run-"))
+            self.assertTrue(second.name.startswith("run-"))
+            self.assertEqual(stat.S_IMODE(first.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(second.stat().st_mode), 0o700)
+            self.assertTrue(first.is_relative_to(workspace))
+
+    def test_evidence_rejects_symlink_into_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            (workspace / "m1-private-evidence").symlink_to(ROOT, target_is_directory=True)
+            with self.assertRaisesRegex(StageError, "symlink"):
+                new_private_evidence_dir(workspace, "a" * 40, "metal4")
+
+    def test_inherited_build_shortcuts_do_not_survive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            evidence = new_private_evidence_dir(workspace, "a" * 40, "m3")
+            env = private_environment(
+                {"DM_GEN_ONLY": "1", "DM_IOS_DD": "/stale",
+                 "DM_OUT": "/wrong", "DM_NOINSTALL": "1",
+                 "PATH": "/usr/bin", "DM_FREE_ACCOUNT": "1"},
+                workspace, workspace / "data/RomFS", "m3", evidence
+            )
+            self.assertNotIn("DM_GEN_ONLY", env)
+            self.assertNotIn("DM_OUT", env)
+            self.assertNotIn("DM_NOINSTALL", env)
+            self.assertEqual(Path(env["DM_IOS_DD"]), evidence / "derived-data")
+            self.assertEqual(env["DM_IOS_M3"], "1")
+            self.assertEqual(env["DM_FREE_ACCOUNT"], "1")
+
+    def test_logs_are_restricted_before_running_command(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            code = (
+                "import os,stat,sys;"
+                "p=sys.argv[1];"
+                "assert stat.S_IMODE(os.stat(p).st_mode)==0o600;"
+                "print('permission checked while process running')"
+            )
+            logfile = evidence / "preflight.private.log"
+            execute("preflight", [sys.executable, "-c", code, str(logfile)],
+                    cwd=ROOT, env=os.environ.copy(), evidence_dir=evidence)
+            self.assertIn("permission checked",
+                          logfile.read_text(encoding="utf-8"))
+            self.assertEqual(stat.S_IMODE(logfile.stat().st_mode), 0o600)
+
+    def test_private_summary_cannot_overwrite_prior_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "summary.json"
+            write_private_json(path, {"result": "passed"})
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            with self.assertRaises(FileExistsError):
+                write_private_json(path, {"result": "failed"})
+            self.assertEqual(json.loads(path.read_text()), {"result": "passed"})
+
+    def test_existing_old_app_cannot_satisfy_a_new_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "owner-workspace"
+            old = workspace / "run/ios/dd/Build/Products/Release-iphoneos/DmIOS.app"
+            old.mkdir(parents=True)
+            (old / "DmIOS").write_bytes(b"stale object" * 100)
+            romfs = workspace / "data/switch/3.3.94012/Update/RomFS"
+            with mock.patch("scripts.m1_local_pipeline.checked_platform"), \\
+                 mock.patch("scripts.m1_local_pipeline.tracked_clean"), \\
+                 mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True), \\
+                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="b" * 40), \\
+                 mock.patch("scripts.m1_local_pipeline.execute", return_value=None):
+                with self.assertRaisesRegex(StageError, "complete DmIOS.app"):
+                    run_pipeline("build", "metal4", workspace, romfs)
+            root = workspace / "m1-private-evidence" / ("b" * 12) / "metal4"
+            folders = list(root.glob("run-*"))
+            self.assertEqual(len(folders), 1)
+            report = json.loads((folders[0] / "m1-summary.json").read_text())
+            self.assertEqual(report["result"], "failed")
+            self.assertFalse(report["full_game_app_built"])
+            self.assertFalse(report["app_signed_locally"])
+            self.assertEqual(report["steps"], {"build": "failed"})
+
+    def test_standalone_build_reports_partial_not_end_to_end(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "owner-workspace"
+            romfs = workspace / "data/switch/3.3.94012/Update/RomFS"
+            observed = []
+            def fake_execute(stage, command, *, cwd, env, evidence_dir):
+                self.assertNotIn("DM_GEN_ONLY", env)
+                self.assertTrue(Path(env["DM_IOS_DD"]).is_relative_to(evidence_dir))
+                observed.append((stage, Path(env["DM_IOS_DD"])))
+            with mock.patch("scripts.m1_local_pipeline.checked_platform"), \\
+                 mock.patch("scripts.m1_local_pipeline.tracked_clean"), \\
+                 mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True), \\
+                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="c" * 40), \\
+                 mock.patch("scripts.m1_local_pipeline.execute", side_effect=fake_execute), \\
+                 mock.patch("scripts.m1_local_pipeline.validate_app", return_value=True) as validate:
+                with mock.patch.dict(os.environ, {"DM_GEN_ONLY": "1"}, clear=False):
+                    record = run_pipeline("build", "metal4", workspace, romfs)
+                self.assertTrue(validate.called)
+            self.assertEqual(record["result"], "partial")
+            self.assertFalse(record["end_to_end_build_stages_verified"])
+            self.assertTrue(record["full_game_app_built"])
+            self.assertEqual(len(observed), 1)
+            self.assertFalse(observed[0][1].is_relative_to(ROOT))
 
 
 if __name__ == "__main__":
