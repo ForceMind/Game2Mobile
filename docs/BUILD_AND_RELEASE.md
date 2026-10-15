@@ -54,6 +54,23 @@ A standalone, game-free diagnostic App has been **compiled and linked by Xcode**
 
 **No Simulator runtime launch is confirmed.** In a [subsequent attempted launch](https://github.com/ForceMind/Game2Mobile/actions/runs/38736867676), the simulator boot check finished but `simctl install` timed out after 120 seconds. This does not demonstrate a game build, a physical-device launch, or a running diagnostic UI. Further Simulator installation is a separately, manually triggered bounded check; verified compile outputs are not held hostage by shared runner installation timeouts.
 
+## Real production source codegen: both Apple SDK paths passed
+
+[Strict Apple Silicon CI on both operating systems](https://github.com/ForceMind/Game2Mobile/actions/runs/38744154022) compiled the actual `dm/host/Makefile` sources to ARM64 Mach-O objects, using genuine Apple Clang:
+
+| Toolchain target | Object compilations | Missing private generated headers | Other compiler errors |
+|---|---:|---:|---:|
+| macOS 26, iOS 26 Metal 4 | **88 / 91** | 3 | **0** |
+| macOS 15, iOS 18 Metal M3 | **88 / 91** | 3 | **0** |
+
+The same three source files require genuine derived game headers:
+`host/diag.c`, `host/dm_bright.c`, and `host/dm_vault_ui.c`. They are
+not missing repository files. All other host sources compiled successfully,
+producing **176 ARM64 object files** in total across both toolchains.
+
+This is **not** a fully linked/signed DmIOS app or verified gameplay. See
+[the source-by-source coverage report](PRODUCTION_COMPILE_COVERAGE.md).
+
 ## Prerequisites for the first Apple build
 
 Use an Apple Silicon Mac with a supported Xcode/Apple SDK, XcodeGen, .NET SDK, spirv-cross and Python. You must legally supply matching Nintendo Switch Diablo II: Resurrected game files: `ExeFS/main`, `sdk`, `subsdk0` and `RomFS/data`. Do not upload game assets or Apple signing credentials to GitHub.

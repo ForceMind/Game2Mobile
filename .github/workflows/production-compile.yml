@@ -1,0 +1,126 @@
+name: Production source compile inventory (asset-free)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/production-compile.yml'
+      - 'scripts/ci_production_compile.py'
+      - 'scripts/ci_xcodegen_profiles.py'
+      - 'dm/host/**'
+      - 'dm/gfx/**'
+      - 'dm/third_party/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-host-object-inventory:
+    name: "Inventory: real iOS host ARM64 objects"
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate Apple iPhoneOS compiler and SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos clang --version
+
+      - name: Compile all production sources (iOS 26 Metal 4)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_production_compile.py \
+            --profiles metal4 --strict \
+            --report "$RUNNER_TEMP/Game2Mobile-production-source-inventory.json"
+
+      - name: Explain classified results without overstating completeness
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          target = Path(os.environ["RUNNER_TEMP"])/"Game2Mobile-production-source-inventory.json"
+          if not target.is_file():
+              print("Compiler inventory was not produced.")
+              raise SystemExit(0)
+          report = json.loads(target.read_text())
+          print("ARM64 production object coverage:", report["profiles"])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("### Real tracked Game2Mobile production sources\n\n")
+              f.write(f"- Makefile source entries: **{report['sources_per_profile']}**\n")
+              for name, counts in report["profiles"].items():
+                  f.write(f"- **{name}**: {counts.get('compiled',0)} ARM64 objects, "
+                          f"{counts.get('blocked_generated_asset',0)} generated-header blocks, "
+                          f"{counts.get('compile_error',0)} other errors\n")
+              f.write("- Expected generated-header blockers: "
+                      + ", ".join(report["expected_game_derived_header_blockers"])
+                      + "\n\n")
+              f.write("**No proprietary game files were supplied.** This inventory does not link the playable game.\n")
+          PY
+
+      - name: Store asset-free per-source compilation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game2Mobile-PRODUCTION-ARM64-COMPILE-INVENTORY
+          path: ${{ runner.temp }}/Game2Mobile-production-source-inventory.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  ios18-legacy-host:
+    name: "Strict inventory: iOS 18 / Metal M3"
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm actual legacy Apple toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Compile all game-host production sources on legacy SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_production_compile.py \
+            --profiles m3 --strict \
+            --report "$RUNNER_TEMP/Game2Mobile-production-ios18-m3.json"
+
+      - name: Publish legacy compile coverage
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"Game2Mobile-production-ios18-m3.json"
+          if p.is_file():
+              r=json.loads(p.read_text())
+              print("iOS18 Metal M3:",r["profiles"]["m3"])
+              with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as summary:
+                  summary.write("### Game2Mobile iOS 18 ARM64 compile coverage\n\n")
+                  summary.write(str(r["profiles"]["m3"]) + "\n\n")
+                  summary.write("Real production sources, no licensed game assets. Full game app NOT linked.\n")
+          PY
+
+      - name: Store Apple iOS 18 source inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game2Mobile-PRODUCTION-IOS18-M3-INVENTORY
+          path: ${{ runner.temp }}/Game2Mobile-production-ios18-m3.json
+          if-no-files-found: warn
+          retention-days: 14
