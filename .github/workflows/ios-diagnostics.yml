@@ -113,6 +113,7 @@ jobs:
           retention-days: 14
 
       - name: Attempt Simulator installation and launch separately
+        if: github.event_name == 'workflow_dispatch'
         id: simulator
         continue-on-error: true
         timeout-minutes: 6
