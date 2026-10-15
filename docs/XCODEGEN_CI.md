@@ -10,10 +10,12 @@ brew install xcodegen                # if missing
 python3 scripts/ci_xcodegen_profiles.py --report /tmp/g2m-xcodegen-report.json
 ```
 
-The script copies **only git-tracked `dm/ios` files** into an isolated temporary
-directory and creates inert, clearly marked `Gen/` placeholders so that XcodeGen
-has build-input paths. It never copies untracked local game assets, `local.env`,
-provisioning profiles or signing keys.
+The script copies **only git-tracked `dm/` source files** into an isolated temporary
+directory, then runs the **real `dm/host/Makefile` → `gen_build.py`** flow to
+create ~90 tracked host-source symlinks and the main-entry symlink. Only
+proprietary game-derived `Gen/` resources are replaced with inert, clearly
+marked placeholders. The script never copies untracked local game assets,
+`local.env`, provisioning profiles or signing keys.
 
 It checks all four combinations: paid/Metal 4, free/Metal 4, paid/M3 (iOS 18),
 free/M3 (iOS 18). Each passes through the same transformation scripts used by
@@ -38,3 +40,14 @@ assets, developer signing and physical-device tests.
   `dm/ios/local.env` and game-derived `Gen/` content are excluded from staging.
 
 工程生成通过并不等于正式 iOS 应用链接成功，不能据此宣布已有可安装版本。
+
+## Real host-source expansion / 真实宿主源码展开
+
+[Passing Apple Silicon CI (with actual generated host source graph)](https://github.com/ForceMind/Game2Mobile/actions/runs/38668287937)
+
+In addition to four XcodeGen profiles, CI verifies that the host Makefile
+expands into at least 80 existing, safely resolved source symlinks; the current
+project generated **90** plus its separate `main.c` link. The NVN/Metal backend
+is checked among those generated source inputs. Its JSON report now includes
+`makefile_source_links`, making source coverage auditable. None of those
+steps execute game ROM data or assemble game binaries.

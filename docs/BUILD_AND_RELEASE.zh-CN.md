@@ -40,7 +40,9 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 
 [真实 CI 验证](https://github.com/ForceMind/Game2Mobile/actions/runs/38667796078) · [验证脚本](../scripts/ci_xcodegen_profiles.py) · [原理与限制](XCODEGEN_CI.md)
 
-**注意：** 此测试仅复制 Git 已跟踪的源码文件进入临时目录，生成标明“仅用于 CI”的空占位内容；并非真实的游戏资源构建或 Xcode App 完整链接。M1 的内部测试包仍未产出。
+**进一步实测：** [最新真实宿主源码 CI](https://github.com/ForceMind/Game2Mobile/actions/runs/38668287937) 已从 `dm/host/Makefile` 执行 `gen_build.py`，生成 **90 条真实源码符号链接及 `Gen/main/main.c`**，随后全部四档 Xcode 工程生成、Xcode 参数检查通过。为避免暴露用户资源，检查脚本只复制 Git 已跟踪的 `dm/` 源文件，游戏资源目录仍使用标注为 CI 的占位内容。
+
+**注意：** 真实的是宿主源码路径和工程生成过程，不是商业游戏二进制、资产、着色器或已链接 App。M1 内部测试包仍未产出。
 
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）
 

@@ -44,9 +44,9 @@ Xcode projects**, not just in a YAML string transform.
 [Test implementation](../scripts/ci_xcodegen_profiles.py) ·
 [Isolation and limitations](XCODEGEN_CI.md).
 
-The CI input tree contains only tracked source plus inert `Gen/` placeholders;
-neither the game binaries nor game-derived assets are available. This is
-**not** a full DmIOS compile, link, IPA, signed app, or device test.
+A later [successful real-source CI run](https://github.com/ForceMind/Game2Mobile/actions/runs/38668287937) also executed **the actual host Makefile → `gen_build.py`** pipeline, generated 90 symlinked tracked host sources plus the real `Gen/main/main.c`, and then passed all four real Xcode project checks. Only game-derived `Gen/` resources remain inert CI placeholders.
+
+The staging operation copies only git-tracked `dm/` source files, never local untracked game assets or signing files. This is **not** a full DmIOS compile, link, IPA, signed app, or device test.
 
 ## Prerequisites for the first Apple build
 
