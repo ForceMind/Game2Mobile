@@ -5,6 +5,7 @@ import json
 import os
 import stat
 import sys
+import subprocess
 from pathlib import Path
 import plistlib
 from unittest import mock
@@ -179,6 +180,7 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertNotIn("DM_OUT", env)
             self.assertNotIn("DM_NOINSTALL", env)
             self.assertEqual(Path(env["DM_IOS_DD"]), evidence / "derived-data")
+            self.assertEqual(env["DM_M1_FRESH_DERIVED_DATA"], env["DM_IOS_DD"])
             self.assertEqual(env["DM_IOS_M3"], "1")
             self.assertEqual(env["DM_FREE_ACCOUNT"], "1")
 
@@ -239,6 +241,7 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             observed = []
             def fake_execute(stage, command, *, cwd, env, evidence_dir):
                 self.assertNotIn("DM_GEN_ONLY", env)
+                self.assertEqual(env["DM_M1_FRESH_DERIVED_DATA"], env["DM_IOS_DD"])
                 self.assertTrue(Path(env["DM_IOS_DD"]).is_relative_to(evidence_dir))
                 observed.append((stage, Path(env["DM_IOS_DD"])))
             with (
@@ -257,6 +260,60 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertTrue(record["full_game_app_built"])
             self.assertEqual(len(observed), 1)
             self.assertFalse(observed[0][1].is_relative_to(ROOT))
+
+
+class M1ShellOverrideTests(unittest.TestCase):
+    """Exercise the real run.sh override in an isolated shell, without game files."""
+
+    def override_script(self) -> str:
+        contents = (ROOT / "dm/ios/run.sh").read_text(encoding="utf-8")
+        marker = 'if [ -n "${DM_M1_FRESH_DERIVED_DATA:-}" ]; then'
+        start = contents.index(marker)
+        end = contents.index("\nfi\n", start) + len("\nfi\n")
+        self.assertLess(contents.index("source tools/local_env.sh"), start)
+        self.assertLess(end, contents.index("DD=${DM_IOS_DD:-"))
+        return contents[start:end]
+
+    def run_guard(self, fresh: str | None, gen_only: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as temporary:
+            local = Path(temporary) / "local.env"
+            local.write_text(
+                'DM_IOS_DD=/stale-previous-build\n'
+                'DM_OUT=/stale-previous-game-patch\n'
+                f'DM_GEN_ONLY={gen_only}\n',
+                encoding="utf-8",
+            )
+            script = (
+                "set -u\n" +
+                "source " + str(local) + "\n" +
+                self.override_script() +
+                "\nprintf '%s|%s' \"${DM_IOS_DD:-}\" \"${DM_OUT:-}\"\n"
+            )
+            env = os.environ.copy()
+            env.pop("DM_M1_FRESH_DERIVED_DATA", None)
+            if fresh is not None:
+                env["DM_M1_FRESH_DERIVED_DATA"] = fresh
+            return subprocess.run(
+                ["bash", "-c", script], env=env,
+                capture_output=True, text=True, check=False,
+            )
+
+    def test_private_override_wins_after_local_env(self):
+        result = self.run_guard("/isolated/new-derived-data", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "/isolated/new-derived-data|")
+
+    def test_gen_only_from_local_env_fails_fast(self):
+        result = self.run_guard("/isolated/new-derived-data", "1")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("refuses DM_GEN_ONLY=1", result.stderr)
+
+    def test_normal_build_configuration_is_unchanged(self):
+        result = self.run_guard(None, "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout, "/stale-previous-build|/stale-previous-game-patch"
+        )
 
 
 if __name__ == "__main__":
