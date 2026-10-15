@@ -38,6 +38,12 @@ GAME_DERIVED_INCLUDES = frozenset({
 # These three translation units have already compiled on Apple's own
 # iPhoneOS toolchain in earlier CI. Catch regressions unconditionally.
 MANDATORY = frozenset({"host/loader.c", "host/main.c", "gfx/nvn/nvn_mtl.m"})
+# First real Apple compile sweep identified exactly these three units as
+# legitimately requiring game-derived private headers. New missing headers
+# elsewhere are regressions until explicitly reviewed and classified.
+KNOWN_GENERATED_BLOCKS = frozenset({
+    "host/diag.c", "host/dm_bright.c", "host/dm_vault_ui.c",
+})
 
 
 def parse_header_paths(xcconfig: str) -> list[str]:
@@ -167,6 +173,16 @@ def compile_inventory(staged: Path, targets: list[str], output: Path) -> dict:
                        for e in subset):
                 failed_mandatory.append(f"{name}:{source}")
     summary["mandatory_compilation_regressions"] = failed_mandatory
+    blocked = {
+        x["source"] for x in reports
+        if x["status"] == "blocked_generated_asset"
+    }
+    summary["unreviewed_generated_asset_blocks"] = sorted(
+        blocked - KNOWN_GENERATED_BLOCKS
+    )
+    summary["expected_game_derived_header_blockers"] = sorted(
+        KNOWN_GENERATED_BLOCKS
+    )
     return summary
 
 
@@ -202,12 +218,17 @@ def main() -> int:
         print("Previously-proven production modules regressed: " + ", ".join(bad),
               file=sys.stderr)
         return 1
-    if args.strict and any(
-        x.get("compile_error", 0) for x in report["profiles"].values()
-    ):
-        print("Strict compile sweep detected unresolved source errors",
-              file=sys.stderr)
-        return 1
+    if args.strict:
+        if report["unreviewed_generated_asset_blocks"]:
+            print("Unreviewed new generated-asset blocks: " + ", ".join(
+                report["unreviewed_generated_asset_blocks"]), file=sys.stderr
+            )
+            return 1
+        if any(x.get("compile_error", 0)
+               for x in report["profiles"].values()):
+            print("Strict compile sweep detected unresolved source errors",
+                  file=sys.stderr)
+            return 1
     print(
         "Baseline OK. This is a compilation inventory: "
         "see JSON for all blocks/errors; full game linking was NOT attempted.",
