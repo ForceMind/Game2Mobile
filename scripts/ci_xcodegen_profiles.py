@@ -246,6 +246,7 @@ def main() -> None:
         raise SystemExit("xcodegen and xcodebuild must both be available.")
     with tempfile.TemporaryDirectory(prefix="game2mobile-xcodegen-") as work:
         ios = staged_project(Path(work))
+        host_source_links = len(list((ios / "Gen/src").iterdir()))
         results = [
             verify_profile(ios, name=name, free=free, m3=m3)
             for name, free, m3 in PROFILES
@@ -254,7 +255,9 @@ def main() -> None:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(
             json.dumps({"test_kind": "asset-free-xcodegen-generation",
-                        "full_app_build": False, "profiles": results},
+                        "full_app_build": False,
+                        "makefile_source_links": host_source_links,
+                        "profiles": results},
                        indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
     print("All four real XcodeGen/Xcode project configuration checks passed.")
