@@ -21,7 +21,7 @@ jobs:
   ios-host-object-inventory:
     name: "Inventory: real iOS host ARM64 objects"
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Locate Apple iPhoneOS compiler and SDK
@@ -33,12 +33,12 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-path
           xcrun --sdk iphoneos clang --version
 
-      - name: Compile every tracked Makefile source (iOS 26 Metal 4)
+      - name: Compile all production sources (iOS 26 Metal 4 + iOS 18 M3)
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/ci_production_compile.py \
-            --profiles metal4 \
+            --profiles metal4,m3 --strict \
             --report "$RUNNER_TEMP/Game2Mobile-production-source-inventory.json"
 
       - name: Explain classified results without overstating completeness
@@ -53,14 +53,17 @@ jobs:
               print("Compiler inventory was not produced.")
               raise SystemExit(0)
           report = json.loads(target.read_text())
-          counts = report["profiles"].get("metal4", {})
-          print("ARM64 production object coverage:", counts)
+          print("ARM64 production object coverage:", report["profiles"])
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
               f.write("### Real tracked Game2Mobile production sources\n\n")
               f.write(f"- Makefile source entries: **{report['sources_per_profile']}**\n")
-              f.write(f"- ARM64 objects compiled: **{counts.get('compiled',0)}**\n")
-              f.write(f"- Blocked by game-derived headers: **{counts.get('blocked_generated_asset',0)}**\n")
-              f.write(f"- Other compiler errors to investigate: **{counts.get('compile_error',0)}**\n\n")
+              for name, counts in report["profiles"].items():
+                  f.write(f"- **{name}**: {counts.get('compiled',0)} ARM64 objects, "
+                          f"{counts.get('blocked_generated_asset',0)} generated-header blocks, "
+                          f"{counts.get('compile_error',0)} other errors\n")
+              f.write("- Expected generated-header blockers: "
+                      + ", ".join(report["expected_game_derived_header_blockers"])
+                      + "\n\n")
               f.write("**No proprietary game files were supplied.** This inventory does not link the playable game.\n")
           PY
 
