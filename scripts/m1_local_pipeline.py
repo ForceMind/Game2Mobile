@@ -26,6 +26,11 @@ import plistlib
 import subprocess
 import sys
 
+try:
+    from .private_build_inputs import inspect_private_headers, PrivateInputError
+except ImportError:  # Invoked as a standalone script from the repository root.
+    from private_build_inputs import inspect_private_headers, PrivateInputError
+
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = (ROOT / "dm/PRODUCT").read_text(encoding="utf-8").strip()
 HEADER_NAMES = ("dm_vault_tab.h", "dm_hud_exp.h", "dm_bright_levels.inc")
@@ -223,8 +228,10 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                      "ROMFS=" + str(romfs)],
                     cwd=ROOT, env=env, evidence_dir=evidence,
                 )
-                from private_build_inputs import inspect_private_headers
-                inspect_private_headers(ROOT / "dm/host")
+                try:
+                    inspect_private_headers(ROOT / "dm/host")
+                except PrivateInputError as exc:
+                    raise StageError("headers", str(exc)) from exc
             elif stage == "verify":
                 private_report = evidence / "private-compile.json"
                 execute(
