@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compile REAL Game2Mobile host Makefile sources against the iOS Apple SDK.
 
-This is an asset-free *object compilation inventory*, not a full game build.
-Only git-tracked public source is staged. Three generated game-derived headers
-are not fabricated; source units requiring them are reported as BLOCKED.
+By default this is an asset-free object compilation inventory. With the explicit
+--private-derived-headers flag, a local owner can privately verify all 91/91
+units using exactly three headers legally generated from their own game RomFS.
+No proprietary headers, executables, or private data enter a GitHub artifact.
 
 On macOS with Xcode:
     python3 scripts/ci_production_compile.py --profiles metal4,m3 \
@@ -26,6 +27,9 @@ import sys
 import tempfile
 
 from ci_xcodegen_profiles import staged_project
+from private_build_inputs import (
+    private_output_is_safe, stage_private_headers, PrivateInputError,
+)
 
 PROFILES = {
     "metal4": ("arm64-apple-ios26.0", "apple-a18", ()),
@@ -193,6 +197,8 @@ def main() -> int:
     p.add_argument("--report", type=Path, required=True)
     p.add_argument("--strict", action="store_true",
                    help="also fail for any unclassified compiler error")
+    p.add_argument("--private-derived-headers", type=Path,
+                   help="locally generated owner-only headers in dm/host; NEVER for CI")
     args = p.parse_args()
     profiles = args.profiles.split(",")
     if not profiles or len(profiles) != len(set(profiles)) or any(
@@ -201,14 +207,37 @@ def main() -> int:
         p.error("Expected unique profiles from metal4,m3")
     if sys.platform != "darwin":
         p.error("Requires actual Apple SDK on macOS")
+    if args.private_derived_headers is not None:
+        if not private_output_is_safe(args.report, ROOT):
+            p.error("Private-mode reports must be written outside the Git repository")
+        if not args.strict:
+            p.error("Private-header mode requires --strict for exact 91/91 verification")
 
     with tempfile.TemporaryDirectory(prefix="game2mobile-source-compile-") as temp:
         stage = Path(temp) / "sources"
         stage.mkdir()
         ios = staged_project(stage)
-        # Only public source, not the synthetic Gen/* placeholders, is
-        # compiled; in particular no private game image/header is invented.
+        # The source inventory itself remains git-tracked and unmodified.
+        # The owner may inject *only* three legally generated local headers,
+        # copied to this isolated temp tree, never to the public Git checkout.
+        if args.private_derived_headers is not None:
+            try:
+                stage_private_headers(args.private_derived_headers, stage / "dm")
+            except PrivateInputError as exc:
+                p.error(str(exc))
         report = compile_inventory(stage, profiles, Path(temp) / "objects")
+        if args.private_derived_headers is not None:
+            # Do not put snippets from any private data/header in reports.
+            for item in report["files"]:
+                if "diagnostic" in item:
+                    item["diagnostic"] = (
+                        "Compiler failure; inspect original local-only build context"
+                    )
+            report["game_assets_used"] = True
+            report["private_generated_headers_used"] = True
+            report["expected_game_derived_header_blockers"] = []
+        else:
+            report["private_generated_headers_used"] = False
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                            encoding="utf-8")
@@ -229,6 +258,14 @@ def main() -> int:
             print("Strict compile sweep detected unresolved source errors",
                   file=sys.stderr)
             return 1
+        if args.private_derived_headers is not None:
+            for name in profiles:
+                count = report["profiles"][name].get("compiled", 0)
+                if count != report["sources_per_profile"]:
+                    print(f"{name}: private headers supplied but only "
+                          f"{count}/{report['sources_per_profile']} sources compiled",
+                          file=sys.stderr)
+                    return 1
     print(
         "Baseline OK. This is a compilation inventory: "
         "see JSON for all blocks/errors; full game linking was NOT attempted.",
