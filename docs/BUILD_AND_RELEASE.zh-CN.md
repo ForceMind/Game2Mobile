@@ -29,6 +29,21 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 
 原项目的 iOS 主 App 使用 26.0 部署目标，但下载扩展此前设为 26.4。已在 Swift 类型检查确认 26.0 编译目标可行后将扩展统一为 26.0。**iOS 26.0 实机上的 Apple-hosted 资源下载行为仍需单独验证**；M3/免费账号构建会按原脚本移除托管资源扩展。
 
+### XcodeGen 四档工程生成：已实测通过
+
+在 Apple Silicon macOS 26 Runner 上使用 **XcodeGen 2.46.0 / Xcode 26.6**，不仅执行 YAML 变体脚本，还执行真实的 `xcodegen generate`、`xcodebuild -list -json` 和 `xcodebuild -showBuildSettings -json`，确认四套 Xcode 工程均成功生成、由 Xcode 解析，部署版本、CPU 参数与下载扩展目标符合预期。
+
+- 付费账号 / Metal 4（iOS 26）：包含 `RomfsDownloader`，部署目标 26.0
+- 免费账号 / Metal 4（iOS 26）：无 `RomfsDownloader`
+- 付费账号 / M3（iOS 18）：无 `RomfsDownloader`，CPU 为 apple-a14
+- 免费账号 / M3（iOS 18）：无 `RomfsDownloader`，CPU 为 apple-a14
+
+[真实 CI 验证](https://github.com/ForceMind/Game2Mobile/actions/runs/38667796078) · [验证脚本](../scripts/ci_xcodegen_profiles.py) · [原理与限制](XCODEGEN_CI.md)
+
+**进一步实测：** [最新真实宿主源码 CI](https://github.com/ForceMind/Game2Mobile/actions/runs/38668287937) 已从 `dm/host/Makefile` 执行 `gen_build.py`，生成 **90 条真实源码符号链接及 `Gen/main/main.c`**，随后全部四档 Xcode 工程生成、Xcode 参数检查通过。为避免暴露用户资源，检查脚本只复制 Git 已跟踪的 `dm/` 源文件，游戏资源目录仍使用标注为 CI 的占位内容。
+
+**注意：** 真实的是宿主源码路径和工程生成过程，不是商业游戏二进制、资产、着色器或已链接 App。M1 内部测试包仍未产出。
+
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）
 
 至少需要 Apple Silicon Mac、适合目标系统版本的 Xcode/Apple SDK、XcodeGen、.NET SDK、spirv-cross、Python，以及用户自己合法取得且**版本匹配**的《暗黑破坏神 II：狱火重生》Switch 版 `ExeFS/main`、`sdk`、`subsdk0` 与 `RomFS/data`。
