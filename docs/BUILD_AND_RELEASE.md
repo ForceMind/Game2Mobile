@@ -71,6 +71,27 @@ producing **176 ARM64 object files** in total across both toolchains.
 This is **not** a fully linked/signed DmIOS app or verified gameplay. See
 [the source-by-source coverage report](PRODUCTION_COMPILE_COVERAGE.md).
 
+## Private owner-only M1 full game build workflow (prepared, not yet executed)
+
+To go beyond the public Apple CI's **88/91** host object compilation,
+an owner may now run [`m1_local_pipeline.py`](../scripts/m1_local_pipeline.py)
+on their own Apple Silicon Mac. This requires the owner's legally obtained
+version-matched game files and local Apple signing identity:
+
+```sh
+python3 scripts/m1_local_pipeline.py plan
+python3 scripts/m1_local_pipeline.py all --profile metal4
+```
+
+The workflow re-generates exactly three private RomFS headers, requires a
+strict real **91/91** ARM64 compile, then calls the existing `DmIOS` Xcode build
+and locally validates the signing. Proprietary headers, original/derived
+game data, private logs and resulting App bundles are **never uploaded to
+GitHub**. See [owner-only instructions](M1_PRIVATE_BUILD.zh-CN.md).
+
+**No successful private 91/91 run, full game link, signed game App or real-device
+gameplay is being claimed by this preparatory code change.**
+
 ## Prerequisites for the first Apple build
 
 Use an Apple Silicon Mac with a supported Xcode/Apple SDK, XcodeGen, .NET SDK, spirv-cross and Python. You must legally supply matching Nintendo Switch Diablo II: Resurrected game files: `ExeFS/main`, `sdk`, `subsdk0` and `RomFS/data`. Do not upload game assets or Apple signing credentials to GitHub.
