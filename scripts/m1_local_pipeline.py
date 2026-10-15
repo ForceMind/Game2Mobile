@@ -102,6 +102,7 @@ def execute(stage: str, command: list[str], *, cwd: Path,
             )
         except OSError as exc:
             raise StageError(stage, f"Unable to start stage: {type(exc).__name__}") from exc
+    os.chmod(logfile, 0o600)
     if result.returncode != 0:
         raise StageError(stage, "See its local-only private log for details")
 
@@ -161,6 +162,18 @@ def run_pipeline(action: str, profile: str, workspace: Path,
         raise StageError("environment", "DM_ROOT must be outside the Git checkout")
     if action != "plan" and not workspace_is_safe(romfs):
         raise StageError("environment", "Licensed RomFS files must not be inside Git")
+    # setup.sh check still verifies the canonical workspace game directory.
+    # A custom --romfs is intentionally supported for just the header stage,
+    # not the whole setup/build chain until setup.sh itself supports it.
+    standard_romfs = (
+        workspace / "data/switch/3.3.94012/Update/RomFS"
+    ).resolve()
+    if action in {"all", "preflight", "prepare", "build"} and romfs != standard_romfs:
+        raise StageError(
+            "environment",
+            "Full setup requires the canonical DM_ROOT game directory; "
+            "use --romfs only with headers/verify",
+        )
     if action != "plan":
         checked_platform()
         tracked_clean()
