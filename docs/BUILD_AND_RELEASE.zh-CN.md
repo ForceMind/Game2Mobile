@@ -50,6 +50,19 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 
 模拟器实际安装运行仍然**未获通过**：在 [首次运行尝试](https://github.com/ForceMind/Game2Mobile/actions/runs/38736867676) 中，`simctl bootstatus` 通过，但 `simctl install` 超过 120 秒超时，因此没有成功启动或获取运行截图；这是当前 runner 的安装超时现象，尚未证明应用本身存在或不存在启动缺陷。后续将模拟器运行作为单独手动触发的限时任务，不阻断已验证的 App 二进制构建交付。
 
+### 生产源码 ARM64 全面检查：两个系统均通过
+
+2026-10-15 已使用 [真实 Apple Silicon 双系统严格 CI](https://github.com/ForceMind/Game2Mobile/actions/runs/38744154022) 完成 **91 个真实宿主编译单元** 的逐文件检查（按原 `dm/host/Makefile` 与 `gen_build.py` 产生的 90 条源码链接 + 单独入口）。Apple Clang 实际生成 Mach-O `.o` 并检查为 ARM64。
+
+| 构建路径 | 生成 ARM64 对象 | 游戏派生表头缺失 | 其他编译错误 |
+|---|---:|---:|---:|
+| macOS 26 Apple Silicon / iOS 26 Metal 4 | **88 / 91** | 3 | **0** |
+| macOS 15 Apple Silicon / iOS 18 Metal M3 | **88 / 91** | 3 | **0** |
+
+两侧唯一阻塞的三个编译单元是 `host/diag.c`（`dm_hud_exp.h`）、`host/dm_bright.c`（`dm_bright_levels.inc`）和 `host/dm_vault_ui.c`（`dm_vault_tab.h`）。这三项由合法游戏 RomFS 数据生成，不属于漏传的源码；本项目不会为公开 CI 伪造真实游戏数据。
+
+本结果说明 **两套平台路径合计 176 个真实源文件目标码编译成功，其他源文件编译错误清零**；**不表示**游戏 App 已完整链接、生成可安装包、已在模拟器运行或真机验证。详见[逐文件编译覆盖报告与复现说明](PRODUCTION_COMPILE_COVERAGE.md)。
+
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）
 
 至少需要 Apple Silicon Mac、适合目标系统版本的 Xcode/Apple SDK、XcodeGen、.NET SDK、spirv-cross、Python，以及用户自己合法取得且**版本匹配**的《暗黑破坏神 II：狱火重生》Switch 版 `ExeFS/main`、`sdk`、`subsdk0` 与 `RomFS/data`。
