@@ -214,11 +214,13 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             old.mkdir(parents=True)
             (old / "DmIOS").write_bytes(b"stale object" * 100)
             romfs = workspace / "data/switch/3.3.94012/Update/RomFS"
-            with mock.patch("scripts.m1_local_pipeline.checked_platform"), \\
-                 mock.patch("scripts.m1_local_pipeline.tracked_clean"), \\
-                 mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True), \\
-                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="b" * 40), \\
-                 mock.patch("scripts.m1_local_pipeline.execute", return_value=None):
+            with (
+                mock.patch("scripts.m1_local_pipeline.checked_platform"),
+                mock.patch("scripts.m1_local_pipeline.tracked_clean"),
+                mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True),
+                mock.patch("scripts.m1_local_pipeline.head_sha", return_value="b" * 40),
+                mock.patch("scripts.m1_local_pipeline.execute", return_value=None),
+            ):
                 with self.assertRaisesRegex(StageError, "complete DmIOS.app"):
                     run_pipeline("build", "metal4", workspace, romfs)
             root = workspace / "m1-private-evidence" / ("b" * 12) / "metal4"
@@ -239,15 +241,17 @@ class FreshBuildEvidenceTests(unittest.TestCase):
                 self.assertNotIn("DM_GEN_ONLY", env)
                 self.assertTrue(Path(env["DM_IOS_DD"]).is_relative_to(evidence_dir))
                 observed.append((stage, Path(env["DM_IOS_DD"])))
-            with mock.patch("scripts.m1_local_pipeline.checked_platform"), \\
-                 mock.patch("scripts.m1_local_pipeline.tracked_clean"), \\
-                 mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True), \\
-                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="c" * 40), \\
-                 mock.patch("scripts.m1_local_pipeline.execute", side_effect=fake_execute), \\
-                 mock.patch("scripts.m1_local_pipeline.validate_app", return_value=True) as validate:
+            with (
+                mock.patch("scripts.m1_local_pipeline.checked_platform"),
+                mock.patch("scripts.m1_local_pipeline.tracked_clean"),
+                mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True),
+                mock.patch("scripts.m1_local_pipeline.head_sha", return_value="c" * 40),
+                mock.patch("scripts.m1_local_pipeline.execute", side_effect=fake_execute),
+                mock.patch("scripts.m1_local_pipeline.validate_app", return_value=True),
+            ):
                 with mock.patch.dict(os.environ, {"DM_GEN_ONLY": "1"}, clear=False):
                     record = run_pipeline("build", "metal4", workspace, romfs)
-                self.assertTrue(validate.called)
+                self.assertEqual(record["steps"], {"build": "passed"})
             self.assertEqual(record["result"], "partial")
             self.assertFalse(record["end_to_end_build_stages_verified"])
             self.assertTrue(record["full_game_app_built"])
