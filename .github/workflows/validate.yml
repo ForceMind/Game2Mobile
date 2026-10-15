@@ -51,3 +51,6 @@ jobs:
           python3 scripts/release_checks.py source
           python3 -m unittest discover -s scripts/tests -v
           bash -n dm/tools/mac_app.sh dm/ios/tools/shell_build.sh
+      - name: Regression-test diagnostics packaging and Simulator selection
+        run: |
+          python3 -m unittest discover -s ci/ios-diagnostics/tests -p 'test_*.py' -v
