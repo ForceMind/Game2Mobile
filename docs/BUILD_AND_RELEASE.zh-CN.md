@@ -63,6 +63,20 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 
 本结果说明 **两套平台路径合计 176 个真实源文件目标码编译成功，其他源文件编译错误清零**；**不表示**游戏 App 已完整链接、生成可安装包、已在模拟器运行或真机验证。详见[逐文件编译覆盖报告与复现说明](PRODUCTION_COMPILE_COVERAGE.md)。
 
+### M1 真正游戏构建：已建立私有执行流程（未在公开 CI 中执行）
+
+基于此前公开 CI 的 **88/91 ARM64 源码编译**和三项 RomFS 派生表头阻塞，现已提供 [`m1_local_pipeline.py`](../scripts/m1_local_pipeline.py)：
+
+```bash
+python3 scripts/m1_local_pipeline.py plan
+# 只有在自己的 Apple Silicon Mac 已配置合法游戏文件和签名时：
+python3 scripts/m1_local_pipeline.py all --profile metal4
+```
+
+流程在本地验证游戏版本和 Apple 工具链，从用户自己的 RomFS **重新生成** `dm_hud_exp.h`、`dm_bright_levels.inc`、`dm_vault_tab.h`，以真实文件进行严格 **91/91** ARM64 编译，然后调用原有 `DmIOS` 完整 App 构建并检查本地签名。游戏内容、私有日志和 App 不会上传至 GitHub。
+
+**当前尚未取得 91/91 私有验证成功或真实游戏 App 签名成功的运行记录。** 公开 CI 只确认本地操作脚本、边界校验、报告隐私保护和原有 88/91 编译路径。请阅读 [完整 M1 私有构建手册](M1_PRIVATE_BUILD.zh-CN.md)，勿将私有游戏文件上传到仓库。
+
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）
 
 至少需要 Apple Silicon Mac、适合目标系统版本的 Xcode/Apple SDK、XcodeGen、.NET SDK、spirv-cross、Python，以及用户自己合法取得且**版本匹配**的《暗黑破坏神 II：狱火重生》Switch 版 `ExeFS/main`、`sdk`、`subsdk0` 与 `RomFS/data`。
