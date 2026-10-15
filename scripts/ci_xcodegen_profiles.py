@@ -160,9 +160,24 @@ def verify_profile(ios: Path, *, name: str, free: bool, m3: bool) -> dict:
     if ("-DDM_NVN_M3=1" in flags) != m3:
         raise RuntimeError(f"{name}: Metal M3 flag does not match profile")
     if not free and not m3:
-        ext = settings.get("RomfsDownloader")
-        if ext is None or ext.get("IPHONEOS_DEPLOYMENT_TARGET") != "26.0":
-            raise RuntimeError(f"{name}: managed asset downloader must target iOS 26.0")
+        # -showBuildSettings with a scheme may return only the primary target.
+        # Query the extension by target name to check *its own* build settings.
+        raw_ext = command(
+            ["xcodebuild", "-showBuildSettings", "-json", "-project", str(project),
+             "-target", "RomfsDownloader", "-configuration", "Release",
+             "-sdk", "iphoneos", "CODE_SIGNING_ALLOWED=NO"], cwd=ios, env=env
+        )
+        ext_settings = {
+            item["target"]: item["buildSettings"] for item in json_from_output(raw_ext)
+        }
+        ext = ext_settings.get("RomfsDownloader")
+        if ext is None:
+            raise RuntimeError(f"{name}: no direct extension settings: {sorted(ext_settings)}")
+        if ext.get("IPHONEOS_DEPLOYMENT_TARGET") != "26.0":
+            raise RuntimeError(
+                f"{name}: extension deployment "
+                f"{ext.get('IPHONEOS_DEPLOYMENT_TARGET')} != iOS 26.0"
+            )
 
     output = {
         "profile": name, "targets": sorted(targets),
