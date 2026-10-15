@@ -223,7 +223,7 @@ jobs:
           echo "macOS 15 M3 compile and asset-free tests passed; complete legacy app not tested."
 
   ios-project-generation:
-    name: XcodeGen: 4 iOS projects (asset-free)
+    name: "XcodeGen: 4 iOS projects (asset-free)"
     runs-on: macos-26
     timeout-minutes: 25
     steps:
