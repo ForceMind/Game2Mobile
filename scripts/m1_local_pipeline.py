@@ -75,6 +75,9 @@ def private_environment(
     env["DM_ROMFS_SRC"] = str(romfs)
     env["DM_IOS_M3"] = "1" if profile == "m3" else "0"
     env["DM_IOS_DD"] = str(evidence / "derived-data")
+    # run.sh reasserts this after loading local.env; local configuration can
+    # no longer quietly point Xcode back to an older DerivedData or DM_OUT.
+    env["DM_M1_FRESH_DERIVED_DATA"] = env["DM_IOS_DD"]
     return env
 
 
