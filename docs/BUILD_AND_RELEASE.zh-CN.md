@@ -75,6 +75,8 @@ python3 scripts/m1_local_pipeline.py all --profile metal4
 
 流程在本地验证游戏版本和 Apple 工具链，从用户自己的 RomFS **重新生成** `dm_hud_exp.h`、`dm_bright_levels.inc`、`dm_vault_tab.h`，以真实文件进行严格 **91/91** ARM64 编译，然后调用原有 `DmIOS` 完整 App 构建并检查本地签名。游戏内容、私有日志和 App 不会上传至 GitHub。
 
+**防止旧包误判：** 每轮使用新的 `DM_ROOT/m1-private-evidence/<commit>/<profile>/run-*/derived-data/`，清除 `DM_GEN_ONLY` 及其他旧产物路径覆盖项；本轮没有实际生成 App 就不能通过。日志在执行开始前设为 `0600`，单独执行某个阶段只记录 `partial`，不宣称整条构建链通过。
+
 **当前尚未取得 91/91 私有验证成功或真实游戏 App 签名成功的运行记录。** 公开 CI 只确认本地操作脚本、边界校验、报告隐私保护和原有 88/91 编译路径。请阅读 [完整 M1 私有构建手册](M1_PRIVATE_BUILD.zh-CN.md)，勿将私有游戏文件上传到仓库。
 
 ## 2. Apple 构建机准备（由持有者在 Mac 上执行）

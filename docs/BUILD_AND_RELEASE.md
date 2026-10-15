@@ -85,9 +85,8 @@ python3 scripts/m1_local_pipeline.py all --profile metal4
 
 The workflow re-generates exactly three private RomFS headers, requires a
 strict real **91/91** ARM64 compile, then calls the existing `DmIOS` Xcode build
-and locally validates the signing. Proprietary headers, original/derived
-game data, private logs and resulting App bundles are **never uploaded to
-GitHub**. See [owner-only instructions](M1_PRIVATE_BUILD.zh-CN.md).
+and locally validates the signing. Every run has a **new isolated DerivedData directory** and it drops inherited `DM_GEN_ONLY`, `DM_OUT`, and stale build-path settings, preventing a previously compiled app from being accepted as a fresh artifact. Private logs and summaries use restrictive file permissions. A single-stage run is marked **partial**.
+Proprietary headers, original/derived game data, private logs and resulting App bundles are **never uploaded to GitHub**. See [owner-only instructions](M1_PRIVATE_BUILD.zh-CN.md).
 
 **No successful private 91/91 run, full game link, signed game App or real-device
 gameplay is being claimed by this preparatory code change.**

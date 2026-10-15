@@ -25,6 +25,7 @@ import platform
 import plistlib
 import subprocess
 import sys
+import tempfile
 
 try:
     from .private_build_inputs import inspect_private_headers, PrivateInputError
@@ -46,6 +47,46 @@ class StageError(RuntimeError):
 def workspace_is_safe(path: Path) -> bool:
     """Private evidence and game assets should never live in the checkout."""
     return not path.expanduser().resolve().is_relative_to(ROOT.resolve())
+
+
+def new_private_evidence_dir(workspace: Path, commit: str, profile: str) -> Path:
+    """Create a never-reused, private build run; reject symlinked destinations."""
+    root = workspace / "m1-private-evidence"
+    parent = root / commit[:12] / profile
+    for directory in (root, root / commit[:12], parent):
+        if directory.is_symlink() or not workspace_is_safe(directory):
+            raise StageError("environment", "Private evidence directory resolves inside Git or through a symlink")
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(directory, 0o700)
+    output = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
+    os.chmod(output, 0o700)
+    return output
+
+
+def private_environment(
+    base: dict[str, str], workspace: Path, romfs: Path,
+    profile: str, evidence: Path
+) -> dict[str, str]:
+    """Force a fresh App build, ignoring dangerous inherited shortcut flags."""
+    env = base.copy()
+    for key in ("DM_GEN_ONLY", "DM_OUT", "DM_IOS_DD", "DM_NOINSTALL"):
+        env.pop(key, None)
+    env["DM_ROOT"] = str(workspace)
+    env["DM_ROMFS_SRC"] = str(romfs)
+    env["DM_IOS_M3"] = "1" if profile == "m3" else "0"
+    env["DM_IOS_DD"] = str(evidence / "derived-data")
+    # run.sh reasserts this after loading local.env; local configuration can
+    # no longer quietly point Xcode back to an older DerivedData or DM_OUT.
+    env["DM_M1_FRESH_DERIVED_DATA"] = env["DM_IOS_DD"]
+    return env
+
+
+def write_private_json(path: Path, data: dict) -> None:
+    """Create the metadata file in restrictive mode, never overwrite a prior run."""
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        json.dump(data, output, indent=2, ensure_ascii=False)
+        output.write("\n")
 
 
 def build_plan(profile: str) -> tuple[tuple[str, str], ...]:
@@ -97,7 +138,10 @@ def ignored_headers() -> bool:
 def execute(stage: str, command: list[str], *, cwd: Path,
             env: dict[str, str], evidence_dir: Path) -> None:
     logfile = evidence_dir / f"{stage}.private.log"
-    with logfile.open("w", encoding="utf-8") as out:
+    descriptor = os.open(
+        str(logfile), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as out:
         out.write(f"Game2Mobile private stage: {stage}\n")
         out.flush()
         try:
@@ -107,7 +151,6 @@ def execute(stage: str, command: list[str], *, cwd: Path,
             )
         except OSError as exc:
             raise StageError(stage, f"Unable to start stage: {type(exc).__name__}") from exc
-    os.chmod(logfile, 0o600)
     if result.returncode != 0:
         raise StageError(stage, "See its local-only private log for details")
 
@@ -124,6 +167,7 @@ def build_record(commit: str, profile: str) -> dict:
         "uploaded_anything": False,
         "source_objects_expected": 91,
         "source_objects_compiled": None,
+        "end_to_end_build_stages_verified": False,
         "full_game_app_built": False,
         "app_signed_locally": False,
         "physical_device_installed": False,
@@ -194,13 +238,8 @@ def run_pipeline(action: str, profile: str, workspace: Path,
         return {}
 
     commit = head_sha()
-    evidence = workspace / "m1-private-evidence" / commit[:12] / profile
-    evidence.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(evidence, 0o700)
-    env = os.environ.copy()
-    env["DM_ROOT"] = str(workspace)
-    env["DM_ROMFS_SRC"] = str(romfs)
-    env["DM_IOS_M3"] = "1" if profile == "m3" else "0"
+    evidence = new_private_evidence_dir(workspace, commit, profile)
+    env = private_environment(os.environ, workspace, romfs, profile, evidence)
     venv_bin = workspace / "build/cache/dm/venv/bin"
     if venv_bin.is_dir():
         env["PATH"] = str(venv_bin) + os.pathsep + env.get("PATH", "")
@@ -247,18 +286,21 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                     raise StageError("verify", "Strict private compile did not reach 91/91")
                 record["source_objects_compiled"] = compiled
             elif stage == "build":
+                # Fail closed on stale outputs and inherited shortcut switches.
+                # Each invocation has a unique, newly allocated DerivedData path.
+                derived = Path(env["DM_IOS_DD"])
+                if derived.exists() or env.get("DM_GEN_ONLY") == "1":
+                    raise StageError("build", "A fresh full App build is required")
                 execute(stage, ["bash", "run.sh", "build"], cwd=ROOT / "dm/ios",
                         env=env, evidence_dir=evidence)
-                derived = Path(env.get(
-                    "DM_IOS_DD", str(workspace / "run/ios/dd")
-                ))
                 app = derived / "Build/Products/Release-iphoneos/DmIOS.app"
                 record["app_signed_locally"] = validate_app(app)
                 record["full_game_app_built"] = True
             else:
                 raise StageError("arguments", "Unknown stage")
             record["steps"][stage] = "passed"
-        record["result"] = "passed"
+        record["end_to_end_build_stages_verified"] = action == "all"
+        record["result"] = "passed" if action == "all" else "partial"
         return record
     except StageError as error:
         record["steps"][error.stage] = "failed"
@@ -268,11 +310,7 @@ def run_pipeline(action: str, profile: str, workspace: Path,
         # This JSON is metadata only. Raw generated headers, compiled game
         # objects, shader binaries and signature material are NEVER uploaded.
         summary = evidence / "m1-summary.json"
-        summary.write_text(
-            json.dumps(record, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        os.chmod(summary, 0o600)
+        write_private_json(summary, record)
 
 
 def main() -> int:

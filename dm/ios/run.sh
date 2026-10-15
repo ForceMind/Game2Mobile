@@ -10,6 +10,15 @@ cd "$(dirname "$0")"
 source tools/devlock.sh
 source tools/asc_env.sh
 source tools/local_env.sh   # 本机设备配置（不进仓，见 local.env.example）；出包不需要设备号，装机 / 启动时才核 | Local device configuration (not committed, see local.env.example); packaging does not need a device ID, it is only checked at install / launch
+# M1 private validation runs against a unique DerivedData path. Local.env is
+# sourced above, so this override must happen AFTER it (otherwise a stale
+# DM_IOS_DD/DM_OUT from local.env could defeat the fresh-build guarantee).
+# Normal Game2Mobile builds are unchanged when this variable is unset.
+if [ -n "${DM_M1_FRESH_DERIVED_DATA:-}" ]; then
+  [ "${DM_GEN_ONLY:-0}" != 1 ] || { echo "M1 full build refuses DM_GEN_ONLY=1" >&2; exit 2; }
+  DM_IOS_DD=$DM_M1_FRESH_DERIVED_DATA
+  unset DM_OUT
+fi
 D=${DM_DEVICE:-}; B=${DM_BUNDLE_ID:?先在本机配置里设 DM_BUNDLE_ID（App 包名，见 dm/ios/local.env.example）}
 R=${DM_ROOT:-$HOME/dm-work}/run/ios; mkdir -p "$R/out"
 DD=${DM_IOS_DD:-$R/dd}
