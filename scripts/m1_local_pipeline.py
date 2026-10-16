@@ -29,8 +29,10 @@ import tempfile
 
 try:
     from .private_build_inputs import inspect_private_headers, PrivateInputError
+    from .m1_game_bundle import validate_real_game_bundle, BundleValidationError
 except ImportError:  # Invoked as a standalone script from the repository root.
     from private_build_inputs import inspect_private_headers, PrivateInputError
+    from m1_game_bundle import validate_real_game_bundle, BundleValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = (ROOT / "dm/PRODUCT").read_text(encoding="utf-8").strip()
@@ -78,6 +80,7 @@ def private_environment(
     # run.sh reasserts this after loading local.env; local configuration can
     # no longer quietly point Xcode back to an older DerivedData or DM_OUT.
     env["DM_M1_FRESH_DERIVED_DATA"] = env["DM_IOS_DD"]
+    env["DM_M1_REQUIRED_PROFILE"] = profile
     return env
 
 
@@ -169,7 +172,10 @@ def build_record(commit: str, profile: str) -> dict:
         "source_objects_compiled": None,
         "end_to_end_build_stages_verified": False,
         "full_game_app_built": False,
+        "real_game_module_sections_verified": False,
+        "game_runtime_resources_verified": False,
         "app_signed_locally": False,
+        "app_binary_sha256": None,
         "physical_device_installed": False,
         "physical_device_gameplay_tested": False,
         "steps": {},
@@ -177,32 +183,12 @@ def build_record(commit: str, profile: str) -> dict:
     }
 
 
-def validate_app(app: Path) -> bool:
-    executable = app / "DmIOS"
-    info_path = app / "Info.plist"
-    if not executable.is_file() or not info_path.is_file():
-        raise StageError("build", "Xcode did not produce a complete DmIOS.app")
+def validate_app(app: Path, profile: str = "metal4") -> dict[str, object]:
+    """Validate this is the actual guest-bearing, device-signed game bundle."""
     try:
-        info = plistlib.loads(info_path.read_bytes())
-    except (OSError, ValueError, plistlib.InvalidFileException) as exc:
-        raise StageError("build", "Cannot validate the built App Info.plist") from exc
-    if info.get("CFBundleDisplayName") != "Game2Mobile":
-        raise StageError("build", "Built App has an unexpected display name")
-    arch = subprocess.run(
-        ["lipo", "-archs", str(executable)],
-        capture_output=True, text=True,
-    )
-    if arch.returncode or "arm64" not in arch.stdout.split():
-        raise StageError("build", "Built Game2Mobile executable is not ARM64")
-    sign = subprocess.run(
-        ["codesign", "--verify", "--deep", "--strict", str(app)],
-        capture_output=True, text=True,
-    )
-    if sign.returncode:
-        raise StageError(
-            "build", "App compiled but the local Apple code signature did not verify"
-        )
-    return True
+        return validate_real_game_bundle(app, profile)
+    except BundleValidationError as exc:
+        raise StageError("build", str(exc)) from exc
 
 
 def run_pipeline(action: str, profile: str, workspace: Path,
@@ -294,7 +280,17 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                 execute(stage, ["bash", "run.sh", "build"], cwd=ROOT / "dm/ios",
                         env=env, evidence_dir=evidence)
                 app = derived / "Build/Products/Release-iphoneos/DmIOS.app"
-                record["app_signed_locally"] = validate_app(app)
+                artifact = validate_app(app, profile)
+                record["real_game_module_sections_verified"] = bool(
+                    artifact["real_guest_macho_segments_verified"]
+                )
+                record["game_runtime_resources_verified"] = bool(
+                    artifact["game_runtime_resources_verified"]
+                )
+                record["app_signed_locally"] = bool(
+                    artifact["app_device_signature_verified"]
+                )
+                record["app_binary_sha256"] = artifact["executable_sha256"]
                 record["full_game_app_built"] = True
             else:
                 raise StageError("arguments", "Unknown stage")
