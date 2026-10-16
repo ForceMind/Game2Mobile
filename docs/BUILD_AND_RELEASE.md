@@ -88,6 +88,18 @@ strict real **91/91** ARM64 compile, then calls the existing `DmIOS` Xcode build
 and locally validates the signing. Every run has a **new isolated DerivedData directory** and it drops inherited `DM_GEN_ONLY`, `DM_OUT`, and stale build-path settings, preventing a previously compiled app from being accepted as a fresh artifact. Private logs and summaries use restrictive file permissions. A single-stage run is marked **partial**.
 Proprietary headers, original/derived game data, private logs and resulting App bundles are **never uploaded to GitHub**. See [owner-only instructions](M1_PRIVATE_BUILD.zh-CN.md).
 
+**Authentic-game bundle validation:** after `run.sh build`, the
+owner-only verifier now requires real guest `main/sdk` Mach-O executable
+and writable image sections, source-derived fixups/gates manifests,
+shader-map files, at least one translated iOS `*_b.metallib`,
+RomFS overlay configuration, an icon asset catalog, an embedded iOS
+provisioning profile and a verifiable Apple code signature. The actual
+minimum iOS version must match Metal 4 (iOS 26) or M3 (iOS 18);
+`local.env` can no longer silently change that selected profile.
+The executable SHA-256 is recorded in the **private** per-run report.
+These checks reject unsigned diagnostics and game-free install shells.
+[Verifier source](../scripts/m1_game_bundle.py).
+
 **No successful private 91/91 run, full game link, signed game App or real-device
 gameplay is being claimed by this preparatory code change.**
 

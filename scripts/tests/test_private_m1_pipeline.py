@@ -127,23 +127,21 @@ class OwnerPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             app = Path(temp) / "DmIOS.app"
             app.mkdir()
-            (app / "DmIOS").write_bytes(b"MachO" * 120)
-            (app / "Info.plist").write_bytes(
-                plistlib.dumps({"CFBundleDisplayName": "Game2Mobile"})
-            )
-            with mock.patch("scripts.m1_local_pipeline.subprocess.run") as run:
-                run.side_effect = [
-                    mock.Mock(returncode=0, stdout="arm64\n"),
-                    mock.Mock(returncode=0, stdout=""),
-                ]
-                self.assertTrue(validate_app(app))
-            with mock.patch("scripts.m1_local_pipeline.subprocess.run") as run:
-                run.side_effect = [
-                    mock.Mock(returncode=0, stdout="arm64\n"),
-                    mock.Mock(returncode=1, stdout=""),
-                ]
-                with self.assertRaisesRegex(StageError, "code signature"):
-                    validate_app(app)
+            passed = {
+                "real_guest_macho_segments_verified": True,
+                "game_runtime_resources_verified": True,
+                "app_device_signature_verified": True,
+                "executable_sha256": "c" * 64,
+            }
+            with mock.patch("scripts.m1_local_pipeline.validate_real_game_bundle",
+                            return_value=passed) as check:
+                self.assertEqual(validate_app(app, "metal4"), passed)
+                check.assert_called_once_with(app, "metal4")
+            from scripts.m1_game_bundle import BundleValidationError
+            with mock.patch("scripts.m1_local_pipeline.validate_real_game_bundle",
+                            side_effect=BundleValidationError("Missing guest segments")):
+                with self.assertRaisesRegex(StageError, "Missing guest segments"):
+                    validate_app(app, "m3")
 
 
 class FreshBuildEvidenceTests(unittest.TestCase):
@@ -182,6 +180,7 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertEqual(Path(env["DM_IOS_DD"]), evidence / "derived-data")
             self.assertEqual(env["DM_M1_FRESH_DERIVED_DATA"], env["DM_IOS_DD"])
             self.assertEqual(env["DM_IOS_M3"], "1")
+            self.assertEqual(env["DM_M1_REQUIRED_PROFILE"], "m3")
             self.assertEqual(env["DM_FREE_ACCOUNT"], "1")
 
     def test_logs_are_restricted_before_running_command(self):
@@ -223,7 +222,7 @@ class FreshBuildEvidenceTests(unittest.TestCase):
                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="b" * 40),
                 mock.patch("scripts.m1_local_pipeline.execute", return_value=None),
             ):
-                with self.assertRaisesRegex(StageError, "complete DmIOS.app"):
+                with self.assertRaisesRegex(StageError, "Fresh DmIOS.app missing"):
                     run_pipeline("build", "metal4", workspace, romfs)
             root = workspace / "m1-private-evidence" / ("b" * 12) / "metal4"
             folders = list(root.glob("run-*"))
@@ -250,7 +249,12 @@ class FreshBuildEvidenceTests(unittest.TestCase):
                 mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True),
                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="c" * 40),
                 mock.patch("scripts.m1_local_pipeline.execute", side_effect=fake_execute),
-                mock.patch("scripts.m1_local_pipeline.validate_app", return_value=True),
+                mock.patch("scripts.m1_local_pipeline.validate_app", return_value={
+                    "real_guest_macho_segments_verified": True,
+                    "game_runtime_resources_verified": True,
+                    "app_device_signature_verified": True,
+                    "executable_sha256": "e" * 64,
+                }),
             ):
                 with mock.patch.dict(os.environ, {"DM_GEN_ONLY": "1"}, clear=False):
                     record = run_pipeline("build", "metal4", workspace, romfs)
@@ -258,6 +262,9 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertEqual(record["result"], "partial")
             self.assertFalse(record["end_to_end_build_stages_verified"])
             self.assertTrue(record["full_game_app_built"])
+            self.assertTrue(record["real_game_module_sections_verified"])
+            self.assertTrue(record["game_runtime_resources_verified"])
+            self.assertEqual(record["app_binary_sha256"], "e" * 64)
             self.assertEqual(len(observed), 1)
             self.assertFalse(observed[0][1].is_relative_to(ROOT))
 
@@ -274,12 +281,14 @@ class M1ShellOverrideTests(unittest.TestCase):
         self.assertLess(end, contents.index("DD=${DM_IOS_DD:-"))
         return contents[start:end]
 
-    def run_guard(self, fresh: str | None, gen_only: str) -> subprocess.CompletedProcess:
+    def run_guard(self, fresh: str | None, gen_only: str,
+                  profile: str = "metal4") -> subprocess.CompletedProcess:
         with tempfile.TemporaryDirectory() as temporary:
             local = Path(temporary) / "local.env"
             local.write_text(
                 'DM_IOS_DD=/stale-previous-build\n'
                 'DM_OUT=/stale-previous-game-patch\n'
+                'DM_IOS_M3=1\n'
                 f'DM_GEN_ONLY={gen_only}\n',
                 encoding="utf-8",
             )
@@ -287,12 +296,14 @@ class M1ShellOverrideTests(unittest.TestCase):
                 "set -u\n" +
                 "source " + str(local) + "\n" +
                 self.override_script() +
-                "\nprintf '%s|%s' \"${DM_IOS_DD:-}\" \"${DM_OUT:-}\"\n"
+                "\nprintf '%s|%s|%s' \"${DM_IOS_DD:-}\" \"${DM_OUT:-}\" \"${DM_IOS_M3:-}\"\n"
             )
             env = os.environ.copy()
             env.pop("DM_M1_FRESH_DERIVED_DATA", None)
+            env.pop("DM_M1_REQUIRED_PROFILE", None)
             if fresh is not None:
                 env["DM_M1_FRESH_DERIVED_DATA"] = fresh
+                env["DM_M1_REQUIRED_PROFILE"] = profile
             return subprocess.run(
                 ["bash", "-c", script], env=env,
                 capture_output=True, text=True, check=False,
@@ -301,18 +312,28 @@ class M1ShellOverrideTests(unittest.TestCase):
     def test_private_override_wins_after_local_env(self):
         result = self.run_guard("/isolated/new-derived-data", "0")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "/isolated/new-derived-data|")
+        self.assertEqual(result.stdout, "/isolated/new-derived-data||0")
+
+    def test_selected_m3_overrides_old_local_config(self):
+        result = self.run_guard("/isolated/new-derived-data", "0", "m3")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "/isolated/new-derived-data||1")
 
     def test_gen_only_from_local_env_fails_fast(self):
         result = self.run_guard("/isolated/new-derived-data", "1")
         self.assertEqual(result.returncode, 2)
         self.assertIn("refuses DM_GEN_ONLY=1", result.stderr)
 
+    def test_missing_m1_profile_fails_closed(self):
+        result = self.run_guard("/isolated/new-derived-data", "0", "bogus")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requires DM_M1_REQUIRED_PROFILE", result.stderr)
+
     def test_normal_build_configuration_is_unchanged(self):
         result = self.run_guard(None, "1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            result.stdout, "/stale-previous-build|/stale-previous-game-patch"
+            result.stdout, "/stale-previous-build|/stale-previous-game-patch|1"
         )
 
 

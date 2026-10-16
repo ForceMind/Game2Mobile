@@ -18,6 +18,13 @@ if [ -n "${DM_M1_FRESH_DERIVED_DATA:-}" ]; then
   [ "${DM_GEN_ONLY:-0}" != 1 ] || { echo "M1 full build refuses DM_GEN_ONLY=1" >&2; exit 2; }
   DM_IOS_DD=$DM_M1_FRESH_DERIVED_DATA
   unset DM_OUT
+  # Prevent local.env from accidentally switching a Metal 4 owner build into
+  # an M3 build (or vice versa) after the M1 Python verifier selected a profile.
+  case "${DM_M1_REQUIRED_PROFILE:-}" in
+    metal4) DM_IOS_M3=0;;
+    m3) DM_IOS_M3=1;;
+    *) echo "M1 full build requires DM_M1_REQUIRED_PROFILE=metal4 or m3" >&2; exit 2;;
+  esac
 fi
 D=${DM_DEVICE:-}; B=${DM_BUNDLE_ID:?先在本机配置里设 DM_BUNDLE_ID（App 包名，见 dm/ios/local.env.example）}
 R=${DM_ROOT:-$HOME/dm-work}/run/ios; mkdir -p "$R/out"
