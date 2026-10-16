@@ -222,7 +222,7 @@ class FreshBuildEvidenceTests(unittest.TestCase):
                 mock.patch("scripts.m1_local_pipeline.head_sha", return_value="b" * 40),
                 mock.patch("scripts.m1_local_pipeline.execute", return_value=None),
             ):
-                with self.assertRaisesRegex(StageError, "complete DmIOS.app"):
+                with self.assertRaisesRegex(StageError, "Fresh DmIOS.app missing"):
                     run_pipeline("build", "metal4", workspace, romfs)
             root = workspace / "m1-private-evidence" / ("b" * 12) / "metal4"
             folders = list(root.glob("run-*"))
