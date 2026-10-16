@@ -65,7 +65,9 @@ def require_runtime_resources(app: Path) -> dict[str, object]:
     """Verify necessary game-derived runtime resources exist (not their origin)."""
     missing = [
         path for path in EXPECTED_RUNTIME_FILES
-        if not (app / path).is_file() or (app / path).stat().st_size == 0
+        if (app / path).is_symlink()
+        or not (app / path).is_file()
+        or (app / path).stat().st_size == 0
     ]
     if missing:
         raise BundleValidationError(
@@ -74,7 +76,7 @@ def require_runtime_resources(app: Path) -> dict[str, object]:
         )
     shader_bundles = sorted(
         path for path in (app / "msl").glob("b-*/*_b.metallib")
-        if path.is_file() and path.stat().st_size > 0
+        if path.is_file() and not path.is_symlink() and path.stat().st_size > 0
     )
     if not shader_bundles:
         raise BundleValidationError("Missing translated iPhoneOS shader libraries")
@@ -105,8 +107,9 @@ def validate_real_game_bundle(app: Path, profile: str) -> dict[str, object]:
         raise BundleValidationError("Fresh DmIOS.app missing or is a symlink")
     executable = app / "DmIOS"
     info_file = app / "Info.plist"
-    if not executable.is_file() or not info_file.is_file():
-        raise BundleValidationError("Fresh DmIOS.app lacks executable or Info.plist")
+    if (executable.is_symlink() or info_file.is_symlink()
+            or not executable.is_file() or not info_file.is_file()):
+        raise BundleValidationError("Fresh DmIOS.app lacks local executable or Info.plist")
     try:
         info = plistlib.loads(info_file.read_bytes())
     except (OSError, ValueError, plistlib.InvalidFileException) as exc:
