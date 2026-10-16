@@ -141,6 +141,28 @@ class RealGameBundleChecksTests(unittest.TestCase):
             with self.assertRaisesRegex(BundleValidationError, "sdk.gates.tsv"):
                 require_runtime_resources(app)
 
+    def test_symlinked_resources_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            app = make_mock_game_app(base)
+            original = app / "dm/main.fixups.tsv"
+            backup = base / "not-a-bundled-file.tsv"
+            original.rename(backup)
+            original.symlink_to(backup)
+            with self.assertRaisesRegex(BundleValidationError, "main.fixups.tsv"):
+                require_runtime_resources(app)
+
+    def test_symlinked_executable_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            app = make_mock_game_app(base)
+            executable = app / "DmIOS"
+            moved = base / "unbundled-game"
+            executable.rename(moved)
+            executable.symlink_to(moved)
+            with self.assertRaisesRegex(BundleValidationError, "local executable"):
+                validate_real_game_bundle(app, "metal4")
+
     def test_missing_translated_shaders_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             app = make_mock_game_app(Path(temporary))
