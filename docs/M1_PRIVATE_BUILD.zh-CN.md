@@ -67,7 +67,12 @@ python3 scripts/ci_production_compile.py \
 
 - 若三个文件缺失、为空、包含明显的 CI 占位标记、是符号链接，脚本立即失败；**不会伪造游戏数据以凑齐 91/91**。
 - 必须严格编译 **91/91** 且无其他错误，才算该编译阶段通过。若失败，保留本机日志供定位；对外可分享的 JSON 不包含头文件原文、密钥、设备标识或原始编译报错。
-- 在 `all` 模式中，最后调用原有 `dm/ios/run.sh build`，再核对 `DmIOS.app` 的名称、ARM64 可执行文件与本机 Apple 签名。
+- 在 `all` 模式中，最后调用原有 `dm/ios/run.sh build`，并使用 [`m1_game_bundle.py`](../scripts/m1_game_bundle.py) 对**真实游戏包**进行更严格验证：
+  - `Info.plist` 的游戏标识、`DmIOS` 可执行文件和目标系统版本正确（Metal 4 对应 iOS 26.0，M3 对应 iOS 18.0）；
+  - `otool -l` 证实真正嵌入了 **guest main/sdk** 的可执行 `__dmmainx0/x1`、`__dmsdkx0/x1` 和可写映像段 `__DMmainW`、`__DMsdkW`，不能用空壳或诊断 App 冒充；
+  - App 内实际带有 `main/sdk` 的 fixups/gates 清单、着色器映射、至少一份非空的 iOS `*_b.metallib`、RomFS 覆盖层配置和 App 图标；
+  - 本机 Apple 签名验证成功，并具备 `embedded.mobileprovision`，同时为二进制生成 SHA-256 以便随后真机验证时对照。
+- M1 还会在 `run.sh` 读取 `local.env` **之后** 重新强制应用用户指定的 `metal4`/`m3` 构建模式，避免旧本地配置悄悄切换部署目标。
 - **即使上述所有步骤通过，也只能称为本地真实游戏 App 已构建/签名，不能自动宣称画面、声音、存档、运行性能或真机安装已验证。** 这些需单独记录实机冒烟测试。
 - 项目公开 CI 仍只使用受版本控制的源文件，不会取得这三个私有头文件；因此公开检查持续保持 **88/91 + 3 个受控资源阻塞**，这是符合设计的结果。
 
