@@ -155,6 +155,18 @@ class RealGameBundleChecksTests(unittest.TestCase):
                 )
             )
 
+    def test_unrelated_zero_size_system_section_is_ignored(self):
+        extra = (
+            "Load command 9\n"
+            "Section\n"
+            "   sectname __empty\n"
+            "   segname __TEXT\n"
+            "      addr 0x0\n"
+            "      size 0x0\n"
+        )
+        parsed = require_guest_sections(MACHO_GUEST_SECTIONS + extra)
+        self.assertEqual(set(parsed), {"main", "sdk"})
+
     def test_zero_size_guest_section_is_rejected(self):
         with self.assertRaisesRegex(BundleValidationError, "Empty game"):
             require_guest_sections(
