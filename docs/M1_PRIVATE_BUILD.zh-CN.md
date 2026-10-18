@@ -70,7 +70,7 @@ python3 scripts/m1_shader_inventory.py source
 合法用户本机可以在构建前手动核查缓存：
 
 ```bash
-V=$(sed -n 's/^#define DMSH_CHAIN "\\(.*\\)"/\\1/p' dm/gfx/nvn/dmsh_chain.h)
+V=$(awk '/^#define DMSH_CHAIN / { gsub(/"/, "", $3); print $3 }' dm/gfx/nvn/dmsh_chain.h)
 python3 scripts/m1_shader_inventory.py cache \
   --ios-root "${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b" \
   --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json"

@@ -81,7 +81,7 @@ shader controls, all represented in the map.
 ```sh
 python3 scripts/m1_shader_inventory.py source
 # On the owner Mac only, after real shader assets have been generated:
-V=$(sed -n 's/^#define DMSH_CHAIN "\\(.*\\)"/\\1/p' dm/gfx/nvn/dmsh_chain.h)
+V=$(awk '/^#define DMSH_CHAIN / { gsub(/"/, "", $3); print $3 }' dm/gfx/nvn/dmsh_chain.h)
 python3 scripts/m1_shader_inventory.py cache \
   --ios-root "${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b" \
   --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json"
