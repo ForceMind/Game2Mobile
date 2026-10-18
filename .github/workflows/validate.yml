@@ -49,6 +49,7 @@ jobs:
       - name: Verify branded source and release gates
         run: |
           python3 scripts/release_checks.py source
+          python3 scripts/m1_shader_inventory.py source
           python3 -m unittest discover -s scripts/tests -v
           bash -n dm/tools/mac_app.sh dm/ios/tools/shell_build.sh
       - name: Regression-test diagnostics packaging and Simulator selection

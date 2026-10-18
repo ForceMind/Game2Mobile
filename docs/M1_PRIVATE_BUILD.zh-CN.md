@@ -55,6 +55,29 @@ python3 scripts/ci_production_compile.py \
   --report "${DM_ROOT:-$HOME/dm-work}/m1-private-codegen.json"
 ```
 
+## 着色器缓存准备：构建前即检查完整性
+
+从仓库根目录执行下面的无资源检查，CI 也会运行：
+
+```bash
+python3 scripts/m1_shader_inventory.py source
+```
+
+本版本真实源码中有 **6,927 个唯一的 Shader Key**，PSO 清单包含 **181 个预热 Shader Key**，均能在正式映射表中找到。这是随仓库交付的映射数据，**不需要上传用户的游戏文件**。
+
+`./setup.sh` 现核验翻译结果 `_b_build.json` 必须精确覆盖映射表全部 Key，所有项为 `ok`，而且 iOS 版缓存中每个 Key 必须具备**非空的 `_b.metallib` 与同版本 `_b.json` 反射文件**。缺失或无效就重新生成或明确失败。此检查在正常 `dm/ios/run.sh build` 中同样会提前执行，阻止把不完整着色器缓存送入 Xcode 做耗时的游戏链接。
+
+合法用户本机可以在构建前手动核查缓存：
+
+```bash
+V=$(awk '/^#define DMSH_CHAIN / { gsub(/"/, "", $3); print $3 }' dm/gfx/nvn/dmsh_chain.h)
+python3 scripts/m1_shader_inventory.py cache \
+  --ios-root "${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b" \
+  --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json"
+```
+
+该检查只报告键数量、翻译链版本和完整性结果；不会打包、上传、导出着色器或游戏数据，更不等于成功构建或启动游戏。
+
 ## 验收与安全边界
 
 每次运行都会在 `DM_ROOT/m1-private-evidence/<commit>/<profile>/run-*/` 创建**全新的**私有证据目录，包含只属于本次运行的 `m1-summary.json`、阶段日志以及完整构建专用的 `derived-data/`。同一提交和配置重复运行也不会覆盖历史证据；不会沿用上一次的 `DmIOS.app`。
@@ -72,7 +95,7 @@ python3 scripts/ci_production_compile.py \
 - 在 `all` 模式中，最后调用原有 `dm/ios/run.sh build`，并使用 [`m1_game_bundle.py`](../scripts/m1_game_bundle.py) 对**真实游戏包**进行更严格验证：
   - `Info.plist` 的游戏标识、`DmIOS` 可执行文件和目标系统版本正确（Metal 4 对应 iOS 26.0，M3 对应 iOS 18.0）；
   - `otool -l` 证实真正嵌入了 **guest main/sdk** 的可执行 `__dmmainx0/x1`、`__dmsdkx0/x1` 和可写映像段 `__DMmainW`、`__DMsdkW`；逐个核对各 section 归属的 segment、非零长度和模块对应关系，不能用空壳、错放的 section 或诊断 App 冒充；
-  - App 内带有 `main/sdk` 的 fixups/gates 清单、着色器映射、RomFS 覆盖层配置和 App 图标。**不再只检查存在一份 Metal 库**：读取实际游戏数据生成的 `dm/shader_map.tsv`，校验其中每一个唯一着色器键都具有相同翻译链版本下非空的 iOS `*_b.metallib` 和配对反射 `*_b.json`；核对 JSON 的 `chain/key/route`，并与独立的 `pso_manifest.tsv` 中 S/C 预热键交叉校验。公开仓库中空白的 `shader_map.tsv` 只是生成前占位，不代表生产映射；
+  - App 内带有 `main/sdk` 的 fixups/gates 清单、着色器映射、RomFS 覆盖层配置和 App 图标。**不再只检查存在一份 Metal 库**：读取实际游戏数据生成的 `dm/shader_map.tsv`，校验其中每一个唯一着色器键都具有相同翻译链版本下非空的 iOS `*_b.metallib` 和配对反射 `*_b.json`；核对 JSON 的 `chain/key/route`，并与独立的 `pso_manifest.tsv` 中 S/C 预热键交叉校验。`dm/gfx/nvn/shader_map.tsv` **本来就是随仓库跟踪的正式映射表**（约 1.33 MB，当前版有 6,927 个唯一 Shader Key），不是空白文件；`pso_manifest.tsv` 有 181 个有效预热 Shader Key，真实商业游戏数据生成的是库、反射和其他衍生资源；
   - 本机 Apple 签名验证成功，并具备 `embedded.mobileprovision`，同时为二进制生成 SHA-256 以便随后真机验证时对照。
 - M1 还会在 `run.sh` 读取 `local.env` **之后** 重新强制应用用户指定的 `metal4`/`m3` 构建模式，避免旧本地配置悄悄切换部署目标。
 - **即使上述所有步骤通过，也只能称为本地真实游戏 App 已构建/签名，不能自动宣称画面、声音、存档、运行性能或真机安装已验证。** 这些需单独记录实机冒烟测试。

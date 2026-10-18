@@ -71,6 +71,30 @@ producing **176 ARM64 object files** in total across both toolchains.
 This is **not** a fully linked/signed DmIOS app or verified gameplay. See
 [the source-by-source coverage report](PRODUCTION_COMPILE_COVERAGE.md).
 
+## Complete source and owner-only shader cache preflight
+
+The **tracked** `dm/gfx/nvn/shader_map.tsv` is a genuine 1.33 MB shader mapping
+file containing **6,927 unique controls** for the pinned version; it is **not**
+an empty placeholder. The tracked PSO warmup list contains 181 unique valid
+shader controls, all represented in the map.
+
+```sh
+python3 scripts/m1_shader_inventory.py source
+# On the owner Mac only, after real shader assets have been generated:
+V=$(awk '/^#define DMSH_CHAIN / { gsub(/"/, "", $3); print $3 }' dm/gfx/nvn/dmsh_chain.h)
+python3 scripts/m1_shader_inventory.py cache \
+  --ios-root "${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b" \
+  --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json"
+```
+
+The same preflight is now used **in `./setup.sh` and before `run.sh build`
+copies/link-packages the resources**. It requires an exact one-to-one
+translator receipt, `ok` status for every mapped control, and each paired
+iPhoneOS `_b.metallib` and reflection `_b.json` with matching chain/key/route.
+Missing assets fail early instead of being detected only after an expensive
+Xcode App build. It does not download, upload, or include licensed game data,
+and it is **not** evidence of a playable game.
+
 ## Private owner-only M1 full game build workflow (prepared, not yet executed)
 
 To go beyond the public Apple CI's **88/91** host object compilation,

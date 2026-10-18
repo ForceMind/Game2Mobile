@@ -52,8 +52,8 @@ if [ "$1" = build ]; then
   # 启动块清单（缺省开预取：宿主到产物目录 = App 内 dm/ 找 bootlist.tsv）+ main.cuts.tsv（宿主据此核清单构建号）；产物没有就不带
   # Boot block list (prefetch on by default: the host looks for bootlist.tsv in the build output directory = dm/ inside the App) + main.cuts.tsv (the host uses it to check the list's build ID); not included if the build output lacks them
   for f in bootlist.tsv main.cuts.tsv; do [ -f $OUT/$f ] && cp $OUT/$f Gen/dm/; done
-  # 图形：着色器映射表（与 Mac 同一份）+ iOS 版 metallib 缓存（PC 链 iphoneos 目标，已编，覆盖映射表 6,938/6,938；APFS 克隆不占空间）
-  # Graphics: shader mapping table (the same copy as on Mac) + iOS metallib cache (PC chain iphoneos target, already compiled, covers 6,938/6,938 of the mapping table; APFS clones take no space)
+  # 图形：着色器映射表（与 Mac 同一份）+ iOS 版 metallib 缓存（PC 链 iphoneos 目标，已编，按映射表全部唯一着色器键检查；APFS 克隆不占空间）
+  # Graphics: shader mapping table (the same copy as on Mac) + iOS metallib cache (PC chain iphoneos target, already compiled, coverage of every unique key in the tracked shader map is required; APFS clones take no space)
   cp ../gfx/nvn/shader_map.tsv Gen/dm/   # 映射表（B 路线只用来查阶段） | Mapping table (route B only uses it to look up the stage)
   cp ../gfx/nvn/pso_manifest.tsv Gen/dm/   # 预热种子清单（与映射表同目录） | Warm-up seed list (same directory as the mapping table)
   cp ../gfx/nvn/c1_full.tsv Gen/dm/   # c1 运行时下标未证有界的着色器清单（与映射表同目录；缺失则全部 c1 独占 64 KiB 并报红） | List of shaders whose c1 runtime index is not proven bounded (same directory as the mapping table; if missing, every c1 gets an exclusive 64 KiB and a failure is reported)
@@ -64,7 +64,17 @@ if [ "$1" = build ]; then
   # To build: J=10 IOSOUT=<this directory> python3 ../gfx/tools/dmsh_build.py $DM_ROOT/build/cache/dm/dmsh <Mac cache dir> (compile settings in tools/ios_metal.py)
   # The host loads only from DM_MSL_DIR/b-<V>/ (V = the translation chain version in dm/gfx/nvn/dmsh_chain.h); inside the App it is placed as msl/b-<V>/, carrying only the current version
   MSL=${DM_MSL_IOS:-${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b}; V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' ../gfx/nvn/dmsh_chain.h)
-  [ -n "$V" ] && [ -d "$MSL/b-$V" ] && ls "$MSL/b-$V" | grep -q "_b.metallib$" || { t "🔴 缺 iOS 版 B 着色器 $MSL/b-${V}（见上一行出包命令；V=${V}）"; exit 1; }
+  [ -n "$V" ] || { t "🔴 缺当前着色器翻译链版本"; exit 1; }
+  # Do not spend time on Xcode packaging if even one shader-map key has no
+  # iPhoneOS Metal library, reflection JSON or completed translation receipt.
+  # The old 'ls | grep _b.metallib' check accepted one file out of thousands.
+  python3 ../../scripts/m1_shader_inventory.py cache \
+    --map ../gfx/nvn/shader_map.tsv \
+    --pso ../gfx/nvn/pso_manifest.tsv \
+    --chain-header ../gfx/nvn/dmsh_chain.h \
+    --ios-root "$MSL" \
+    --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json" \
+    || { t "🔴 iOS 着色器缓存不完整，请先从仓库根目录执行 ./setup.sh"; exit 1; }
   mkdir -p Gen/msl && cp -cR "$MSL/b-$V" Gen/msl/
   # 资源直接下载（直装包，Sources/asset_dl.m）：地址文件列表（仓库里的 asset_pointers.txt）+ 出包时的缺省下载根地址（DM_ASSET_BASE，tools/adhoc.sh 传隧道地址；没传就不带）
   # Direct asset download (direct-install package, Sources/asset_dl.m): URL file list (asset_pointers.txt in the repository) + the default download root URL at packaging time (DM_ASSET_BASE; tools/adhoc.sh passes the tunnel URL; omitted if not passed)
