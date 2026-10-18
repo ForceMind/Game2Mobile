@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -49,6 +50,39 @@ class FrontendCompilerTests(unittest.TestCase):
         )
         self.assertIn("-std=gnu11", cmd)
         self.assertNotIn("-fobjc-arc", cmd)
+
+    def test_ios18_excludes_unavailable_managed_asset_apis(self):
+        """Old-device SDK lacks BAAssetPackManager and its 26.x delegate."""
+        from scripts.ci_ios_frontend_compile import ROOT
+        source = (ROOT / "dm/ios/Sources/main.m").read_text(encoding="utf-8")
+        excluded = []
+        names = re.compile(
+            r"\b(?:BAAssetPackManager|BAAssetPackStatus|BAAssetPack|"
+            r"BAManagedAssetPackDownloadDelegate)\b"
+        )
+        found = 0
+        for number, raw in enumerate(source.splitlines(), start=1):
+            line = raw.strip()
+            if line.startswith(("#if ", "#ifdef ", "#ifndef ")):
+                excluded.append(line == "#if !defined(DM_NVN_M3)")
+                continue
+            if line.startswith(("#else", "#elif ")):
+                if excluded:
+                    excluded[-1] = False
+                continue
+            if line.startswith("#endif"):
+                if excluded:
+                    excluded.pop()
+                continue
+            if line.startswith("//") or not names.search(line):
+                continue
+            found += 1
+            self.assertTrue(
+                any(excluded),
+                f"iOS18-incompatible BackgroundAssets type exposed at line {number}",
+            )
+        self.assertGreaterEqual(found, 10)
+        self.assertEqual(excluded, [])
 
     def test_diagnostic_redaction(self):
         from scripts.ci_ios_frontend_compile import ROOT

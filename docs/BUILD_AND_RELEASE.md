@@ -71,6 +71,30 @@ producing **176 ARM64 object files** in total across both toolchains.
 This is **not** a fully linked/signed DmIOS app or verified gameplay. See
 [the source-by-source coverage report](PRODUCTION_COMPILE_COVERAGE.md).
 
+## Real UIKit and iOS frontend ARM64 compilation (2026-10-19)
+
+In addition to the 91 Makefile host/graphics units, there are **17 distinct
+tracked iOS UIKit/frontend C and Objective-C units**. The real Apple Clang
+compiled all **17/17** on both macOS 26/iOS 26 (Metal 4) and
+macOS 15/iOS 18 (M3), with no other compiler errors.
+
+The new iOS 18 check exposed a real `main.m` defect:
+`BAAssetPackManager` and its managed download delegate are not declared
+by the older SDK. The code now compiles those APIs only for newer Metal 4
+profiles. Legacy M3 uses the existing local/direct resource path.
+
+The host `gen_build.py` explicitly excludes shared iOS Sources from
+`Gen/src`, so the two lists are disjoint: **105 of 108 tracked
+C/Objective-C/graphics host and frontend units** can now compile on
+both Apple targets. The remaining three require lawful game-derived tables,
+and the untracked generated `dm_touch_native_art.c` still cannot be compiled
+in public CI.
+
+[Actual Apple frontend compilation results](https://github.com/ForceMind/Game2Mobile/actions/runs/39153982764)
+· [Separate host/frontend coverage matrix](PRODUCTION_COMPILE_COVERAGE.md).
+
+This is not full DmIOS target linking or evidence of actual game execution.
+
 ## Complete source and owner-only shader cache preflight
 
 The **tracked** `dm/gfx/nvn/shader_map.tsv` is a genuine 1.33 MB shader mapping
