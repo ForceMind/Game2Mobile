@@ -456,10 +456,14 @@ static NSString *romfs_locate(char *why, size_t n) {
     NSString *pack = nil; BOOL avail = NO; const char *tp = getenv("DM_ROMFS_TEST_PACK");   // 只测试用：DM_ROMFS_TEST_PACK=<Documents 下的文件夹名> 当成「本地可用」的托管资源包 | Test only: DM_ROMFS_TEST_PACK=<folder name under Documents> is treated as a "locally available" managed asset pack
     if (tp && *tp && !strchr(tp, '/')) { pack = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0] stringByAppendingPathComponent:@(tp)]; avail = YES; }
     else if (!ba_configured()) plog("boot: 本包没有配置托管资源包，不问系统");
+#if !defined(DM_NVN_M3)
+    // The legacy iOS 18 SDK does not declare BAAssetPackManager. M3 project
+    // profiles omit Apple-hosted pack entitlements and use local/direct assets.
     else if (@available(iOS 26.4, *)) {
         NSError *e = nil; pack = [BAAssetPackManager.sharedManager URLForPath:@"romfs" error:&e].path; avail = [BAAssetPackManager.sharedManager assetPackIsAvailableLocallyWithIdentifier:@"romfs"];
         if (e) plog("boot: 托管资源包取路径报错：%s", e.localizedDescription.UTF8String);
     }
+#endif
     if (pack) {
         NSArray *in = [fm contentsOfDirectoryAtPath:[pack stringByAppendingPathComponent:@"data"] error:nil]; BOOL there = [fm fileExistsAtPath:pack];
         plog("boot: 托管资源包：系统说本地%s；路径 %s（磁盘上%s，data 里 %d 个文件）", avail ? "可用" : "不可用", pack.fileSystemRepresentation, there ? "有" : "没有", (int)in.count);
@@ -807,17 +811,23 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
 }
 - (BOOL)packAvail {
     if (getenv("DM_TEST_BA")) return self.testAvailAt > 0 && CFAbsoluteTimeGetCurrent() >= self.testAvailAt;
+#if !defined(DM_NVN_M3)
     if (@available(iOS 26.4, *)) return [BAAssetPackManager.sharedManager assetPackIsAvailableLocallyWithIdentifier:@"romfs"];
+#endif
     return NO;
 }
 - (void)logPack:(BOOL)avail free:(int64_t)fr {
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent(); double w = now - self.packT, f = self.packFull ? now - self.packFull : -1, d = self.packDone / 1e9, t = self.packBytes / 1e9, g = fr / 1e9; int a = avail;
     if (getenv("DM_TEST_BA")) { plog("assets: 托管状态（测试现场）：已等 %.0f 秒，进度 %.2f / %.2f GB（100%% 后 %.0f 秒，-1 = 没到），系统说本地可用 %d，可用空间 %.2f GB", w, d, t, f, a, g); return; }
+#if !defined(DM_NVN_M3)
     if (@available(iOS 26.4, *)) {
         [BAAssetPackManager.sharedManager getLocalStatusOfAssetPackWithIdentifier:@"romfs" completionHandler:^(BAAssetPackStatus st) {
             plog("assets: 托管状态：已等 %.0f 秒，进度 %.2f / %.2f GB（100%% 后 %.0f 秒，-1 = 没到），系统说本地可用 %d，可用空间 %.2f GB；系统状态位 0x%lx（1 可下载 2 有更新 4 最新 8 过期 0x10 已撤 0x20 下载中 0x40 已下完）",
                  w, d, t, f, a, g, (unsigned long)st); }];
-    } else plog("assets: 托管状态：已等 %.0f 秒，进度 %.2f / %.2f GB（100%% 后 %.0f 秒，-1 = 没到），系统说本地可用 %d，可用空间 %.2f GB", w, d, t, f, a, g);
+        return;
+    }
+#endif
+    plog("assets: 托管状态：已等 %.0f 秒，进度 %.2f / %.2f GB（100%% 后 %.0f 秒，-1 = 没到），系统说本地可用 %d，可用空间 %.2f GB", w, d, t, f, a, g);
 }
 - (void)packText:(int64_t)fr {   // 100% 之后屏上那段：空间不够 > 超时 > 正在安装 | the passage on screen after 100%: not enough space > timeout > installing
     NSString *dev = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? @"iPad" : @"iPhone";
@@ -884,6 +894,7 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
         return;
     }
     if (!ba_configured()) { [self direct:stray]; return; }
+#if !defined(DM_NVN_M3)
     if (@available(iOS 26.4, *)) {
         [self say:T("dmDlConnecting")];
         BAAssetPackManager *m = BAAssetPackManager.sharedManager; m.delegate = self;
@@ -899,6 +910,10 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
             }];
         }];
     } else [self direct:stray];
+#else
+    // Old Metal/M3 mode (iOS 18+) has no Apple-hosted asset extension.
+    [self direct:stray];
+#endif
 }
 // 直装包：从我们自己的下载站把资源直接下到 Documents/Game2Mobile Resources（asset_dl.m）。下载站走不通时界面退回原来的指引（或 fallback 给的原因）
 // Direct-install build: download the assets straight from our own download site into Documents/Game2Mobile Resources (asset_dl.m). When the download site is unreachable the screen falls back to the original instructions (or the reason given by fallback)
