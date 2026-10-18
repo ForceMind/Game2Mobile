@@ -63,6 +63,21 @@ GitHub Actions 还会运行不需要游戏资源的 Python/C 单测。绿色检�
 
 本结果说明 **两套平台路径合计 176 个真实源文件目标码编译成功，其他源文件编译错误清零**；**不表示**游戏 App 已完整链接、生成可安装包、已在模拟器运行或真机验证。详见[逐文件编译覆盖报告与复现说明](PRODUCTION_COMPILE_COVERAGE.md)。
 
+### 着色器准备与早期失败检查
+
+原先 `setup.sh` 的缓存检查只核对翻译任务状态及是否存在部分 `metallib`；`run.sh build` 甚至只需看见**一份** Metal 库便继续。现两者都通过 [统一的源码/缓存核对脚本](../scripts/m1_shader_inventory.py)：在真正执行 Xcode 构建**之前**，要求 Shader Map 全部 6,927 个唯一 Key 均成功翻译、有匹配的 iOS Metal 库与配对反射 JSON，并核对 181 个 PSO 预热 Shader Key。若实际映射数据变化，检查按新版本真实表计算，不依赖固定写死的产物计数。
+
+```bash
+python3 scripts/m1_shader_inventory.py source
+# 在已运行 ./setup.sh、合法取得并生成自己的游戏衍生资源后：
+V=$(sed -n 's/^#define DMSH_CHAIN "\\(.*\\)"/\\1/p' dm/gfx/nvn/dmsh_chain.h)
+python3 scripts/m1_shader_inventory.py cache \
+  --ios-root "${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b" \
+  --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json"
+```
+
+这是翻译缓存预检查，并非真实游戏 App 或设备验收。
+
 ### M1 真正游戏构建：已建立私有执行流程（未在公开 CI 中执行）
 
 基于此前公开 CI 的 **88/91 ARM64 源码编译**和三项 RomFS 派生表头阻塞，现已提供 [`m1_local_pipeline.py`](../scripts/m1_local_pipeline.py)：
