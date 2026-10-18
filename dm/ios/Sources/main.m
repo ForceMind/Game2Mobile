@@ -739,7 +739,13 @@ static void run_mode(void) {
 static void run_boot(void);
 // 资源下载界面（安装时系统不给进度，判断不了是在下还是卡住）：资源包不在本地时显示已下 / 总量 / 速度，出错把原因写在屏上并可重试；到了就地起宿主进游戏
 // Asset download screen (the system gives no progress during install, so you cannot tell downloading from stuck): when the asset pack is not local, show downloaded / total / speed; on error write the reason on screen and allow retry; once it arrives, start the host in place and enter the game
+#if !defined(DM_NVN_M3)
 @interface AssetVC : UIViewController <BAManagedAssetPackDownloadDelegate>
+#else
+// The iOS 18 SDK has no managed-asset download protocol. Legacy M3 builds
+// use locally provided or direct-download resources instead of Apple hosting.
+@interface AssetVC : UIViewController
+#endif
 @property (strong) UILabel *label; @property (strong) UIProgressView *bar; @property (strong) UIButton *retry;
 @property (assign) int64_t last; @property (assign) CFAbsoluteTime lastT; @property (assign) double rate;
 @property (strong) nw_path_monitor_t netmon; @property (assign) int netDown, stopped;   // 守着网络：停在「下载没开始」那一页时，网络从不通变成通就自己重试 | network watch: while sitting on the "download did not start" page, retry automatically when the network goes from down to up
@@ -859,6 +865,7 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
 // Test switch DM_TEST_BA=finish|late|silent|fail (stages a hosted download scene for the iOS package on the Mac, the resources are actually local): fake progress goes to 100% within 3 seconds, then -
 // finish sends the completion notification 3 seconds later; late sends nothing (with DM_TEST_BA_SLOW=<seconds> to see the timeout); silent sends no notification and "the system says it is available locally" after 8 seconds (to see polling recover); fail sends a download failure.
 // DM_TEST_BA_TAP=<seconds>: at that time, taps "Use direct download" for the player (reports red if the button is not showing)
+#if !defined(DM_NVN_M3)
 - (void)fakeBA:(NSString *)sc API_AVAILABLE(ios(26.0)) {
     plog("assets: 测试现场 DM_TEST_BA=%s", sc.UTF8String); self.packBytes = 4130000000LL; [self watchPack]; [self say:T("dmDlDownloading")];
     NSProgress *g = [NSProgress progressWithTotalUnitCount:self.packBytes]; BAAssetPack *np = nil;
@@ -870,6 +877,7 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
     const char *tp = getenv("DM_TEST_BA_TAP"); if (tp) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(atof(tp) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (self.useDirect.hidden) plog("【红】DM_TEST_BA_TAP：「改用直接下载」没露出来"); else [self useDirectTap]; });
 }
+#endif
 - (void)say:(NSString *)t { plog("assets: %s", t.UTF8String); dispatch_async(dispatch_get_main_queue(), ^{ self.label.text = t; }); }
 - (void)fail:(NSString *)what error:(NSError *)e {
     // 直装包没有托管资源，这条路必然失败：报错只进日志，界面给玩家能照做的指引
@@ -881,7 +889,9 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
 - (void)start {
     self.retry.hidden = YES; self.stopped = 0; self.last = 0; self.lastT = CFAbsoluteTimeGetCurrent(); self.packStop = 0; self.textKind = 0;
     char why[2048];
-    if (getenv("DM_TEST_BA") && !self.gone) { if (@available(iOS 26.0, *)) [self fakeBA:@(getenv("DM_TEST_BA"))]; return; }   // 测试：造托管下载现场（fakeBA） | test: stage a hosted download scene (fakeBA)
+#if !defined(DM_NVN_M3)
+    if (getenv("DM_TEST_BA") && !self.gone) { if (@available(iOS 26.0, *)) [self fakeBA:@(getenv("DM_TEST_BA"))]; return; }
+#endif   // 测试：造托管下载现场（fakeBA） | test: stage a hosted download scene (fakeBA)
     if (!getenv("DM_ASSETS_TEST") && romfs_locate(why, sizeof why)) { [self ready]; return; }   // 重试时资源已到（如刚在「文件」里拷完） | Assets have already arrived on retry (e.g. just finished copying in the Files app)
     if (!getenv("DM_ASSETS_TEST") && g_doc_bad) { [self direct:@(why)]; return; }   // 有文件夹但不完整（拷到一半 / 下到一半）：不试托管下载，直接从下载站补齐；下载站走不通才报原因 | A folder exists but is incomplete (half copied / half downloaded): do not try the hosted download, fill in the rest straight from the download site; report the reason only if the download site is unreachable
     if (self.gone) { [self direct:nil]; return; }   // 玩家已选「改用直接下载」：重试仍走这条（托管的回调此后不接，回到托管会停在「正在下载」） | the player chose "Use direct download": retries keep going this way (callbacks from the hosted download are not taken from now on; going back to hosted would stay stuck at "Downloading")
@@ -960,6 +970,7 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
         [self presentViewController:a animated:YES completion:nil];
     }];
 }
+#if !defined(DM_NVN_M3)
 - (void)downloadOfAssetPack:(BAAssetPack *)p hasProgress:(NSProgress *)g API_AVAILABLE(ios(26.0)) {
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent(); int64_t done = g.completedUnitCount, total = g.totalUnitCount;
     if (self.gone) return;   // 已改走直接下载：屏上是那条路的进度 | already switched to direct download: the screen shows that path's progress
@@ -980,6 +991,7 @@ static int64_t free_bytes(void) {   // 给 App 用的可用空间（系统「重
 - (void)downloadOfAssetPack:(BAAssetPack *)p failedWithError:(NSError *)e API_AVAILABLE(ios(26.0)) {
     if (self.gone) { plog("assets: 托管下载失败（已改走直接下载）：%s", e.localizedDescription.UTF8String); return; }
     self.packStop = 1; [self fail:@"下载游戏资源" error:e]; [self offerDirect:3]; }
+#endif
 - (void)ready {
     char why[2048];
     static int started; if (started) return;   // 完成回调与系统的完成通知都会走到这里：只起一次 | Both the completion callback and the system's completion notification end up here: start only once
