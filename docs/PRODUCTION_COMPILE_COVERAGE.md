@@ -24,6 +24,36 @@ source, or regression in the previously verified loader/main/Metal modules.
 [Strict two-runner GitHub Actions results](https://github.com/ForceMind/Game2Mobile/actions/runs/38744154022).
 Two separate JSON artifacts retain the per-file results for each profile.
 
+## Real iOS frontend compilation: both SDK versions passed (2026-10-19)
+
+The project also has **17 separate tracked iOS frontend** Objective-C/C units
+(`dm/ios/Sources`) for UIKit, touch, gamepad, shader preparation, save
+synchronization, downloads and the iOS entrypoint. These are not the same as
+the `Gen/src` host compilation units: `gen_build.py` deliberately skips
+host-borrowed iOS Sources to avoid double-linking.
+
+| iOS source group | iOS 26 / macOS 26 | iOS 18 / macOS 15 |
+|---|---:|---:|
+| Host/graphics Makefile units | 88 / 91 compiled | 88 / 91 compiled |
+| Real tracked UIKit/frontend units | **17 / 17 compiled** | **17 / 17 compiled** |
+| **Total distinct tracked units** | **105 / 108** | **105 / 108** |
+| Additional C/Obj-C compiler errors | **0** | **0** |
+
+The original legacy iOS 18 compiler run failed on `main.m`: iOS 18 has
+no `BAAssetPackManager` or iOS 26 managed-asset download delegate.
+The source now excludes those APIs under `DM_NVN_M3`, while preserving the
+iOS 26 managed download implementation and the iOS 18
+local/direct-download fallback. Recompilation on the real Apple iOS 18
+SDK confirmed **17/17** compiled with no errors.
+
+[Verified dual-profile frontend run](https://github.com/ForceMind/Game2Mobile/actions/runs/39153982764)
+· [Source compiler](../scripts/ci_ios_frontend_compile.py).
+
+**Important:** the 108-unit total counts only tracked host plus tracked iOS
+frontend sources. The generated `Sources/dm_touch_native_art.c` and three
+RomFS-derived headers still require the owner's lawful game data. Object-code
+success is not evidence of full target linking, signing or gameplay.
+
 ## Exactly three expected RomFS-derived dependencies
 
 | Source | Missing generated file | Generation path in repository |
