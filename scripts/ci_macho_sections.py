@@ -10,6 +10,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+import re
 import sys
 
 from m1_game_bundle import BundleValidationError, require_guest_sections
@@ -54,9 +55,12 @@ def run() -> int:
         if set(required) != {"main", "sdk"}:
             raise RuntimeError("Guest sections not recognized by real Apple otool output")
         # Validate the parser actually rejects misplaced sections.
-        tampered = listing.replace("sectname __dmmainx0\n   segname __TEXT",
-                                   "sectname __dmmainx0\n   segname __DATA", 1)
-        if tampered == listing:
+        tampered, replaced = re.subn(
+            r"(?m)(sectname[ \t]+__dmmainx0\n[ \t]*segname[ \t]+)__TEXT",
+            r"\g<1>__DATA",
+            listing, count=1,
+        )
+        if replaced != 1:
             # Real Apple formatting can vary; require an actual recognized
             # section to be rewritten instead of silently skipping this test.
             raise RuntimeError("Fixture section layout format changed")
