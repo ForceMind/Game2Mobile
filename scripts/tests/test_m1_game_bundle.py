@@ -173,6 +173,7 @@ class RealGameBundleChecksTests(unittest.TestCase):
             Section
                 sectname __text
                 segname __TEXT
+                   size 0x0000000000004000
             """)
 
     def test_partial_game_sdk_rejected(self):
