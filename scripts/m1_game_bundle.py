@@ -61,8 +61,8 @@ def require_guest_sections(otool_text: str) -> dict[str, list[str]]:
             size = int(current["size"], 0)
         except ValueError as exc:
             raise BundleValidationError("Invalid guest section size") from exc
-        if size <= 0:
-            raise BundleValidationError("Empty game Mach-O guest section")
+        # Apple object files can contain unrelated system/compiler sections
+        # with zero size. Reject emptiness ONLY for the required guest images.
         key = (current["segname"], current["sectname"])
         if key in sections:
             raise BundleValidationError("Duplicate guest Mach-O section")
@@ -93,6 +93,8 @@ def require_guest_sections(otool_text: str) -> dict[str, list[str]]:
             raise BundleValidationError(
                 f"Game guest {module} missing correctly placed executable or writable Mach-O sections"
             )
+        if any(sections[item] <= 0 for item in expected):
+            raise BundleValidationError(f"Empty game Mach-O guest section in {module}")
         accepted[module] = sorted(f"{segment}/{name}" for segment, name in expected)
     return accepted
 
