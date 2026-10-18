@@ -116,8 +116,9 @@ def expected_shader_chain(header: Path | None = None) -> str:
 def shader_keys_from_map(text: str) -> set[str]:
     """Use precisely the map rows consumed by dmsh_build.py.
 
-    The repository keeps an empty placeholder shader_map.tsv; the real map is
-    generated from the owner's game data. A missing/empty bundle map is fatal.
+    The repository contains a tracked 1.3 MB shader_map.tsv for the pinned
+    game version, with 6,927 distinct controls. Owner-generated metallibs and
+    reflection JSONs remain private. A missing/empty bundle map is fatal.
     """
     keys: set[str] = set()
     for line in text.splitlines():
