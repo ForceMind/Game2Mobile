@@ -151,6 +151,12 @@ jobs:
           done
           echo "ARM64 Mach-O code generation completed; full game linking remains untested."
 
+      - name: Validate real Apple Mach-O section layout parsing (asset-free)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_macho_sections.py
+
       - name: Type-check Apple-hosted asset downloader extension
         shell: bash
         run: |
