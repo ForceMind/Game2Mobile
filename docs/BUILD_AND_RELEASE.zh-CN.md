@@ -75,7 +75,7 @@ python3 scripts/m1_local_pipeline.py all --profile metal4
 
 流程在本地验证游戏版本和 Apple 工具链，从用户自己的 RomFS **重新生成** `dm_hud_exp.h`、`dm_bright_levels.inc`、`dm_vault_tab.h`，以真实文件进行严格 **91/91** ARM64 编译，然后调用原有 `DmIOS` 完整 App 构建并检查本地签名。游戏内容、私有日志和 App 不会上传至 GitHub。
 
-**真实游戏包完整性门禁：** 本地构建完成后，还必须检测 `main/sdk` 真正的 Mach-O 游戏映像段、运行时 fixups/gates 表、着色器库和 RomFS 覆盖配置，并核对系统最低版本、设备签名与嵌入的 provisioning profile。校验不通过就不能标记 `full_game_app_built`。校验后仅在私有本地报告中保存可执行文件的 SHA-256，用于后续真机产物追踪。
+**真实游戏包完整性门禁：** 本地构建完成后，必须核对 `main/sdk` 真正归属于正确段且大小非零的 Mach-O 游戏映像、运行时 fixups/gates 表、RomFS 覆盖配置，以及**实际游戏映射表内每个着色器键**对应的 `metallib` 和反射 JSON；同时核对翻译链版本与 PSO 预热清单、系统最低版本、设备签名和 provisioning profile。校验不通过就不能标记 `full_game_app_built`。校验后仅在私有本地报告中保存可执行文件的 SHA-256，用于后续真机产物追踪。
 
 **防止旧包误判：** 每轮使用新的 `DM_ROOT/m1-private-evidence/<commit>/<profile>/run-*/derived-data/`，清除 `DM_GEN_ONLY` 及其他旧产物路径覆盖项；本轮没有实际生成 App 就不能通过。日志在执行开始前设为 `0600`，单独执行某个阶段只记录 `partial`，不宣称整条构建链通过。
 

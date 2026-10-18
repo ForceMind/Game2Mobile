@@ -89,11 +89,13 @@ and locally validates the signing. Every run has a **new isolated DerivedData di
 Proprietary headers, original/derived game data, private logs and resulting App bundles are **never uploaded to GitHub**. See [owner-only instructions](M1_PRIVATE_BUILD.zh-CN.md).
 
 **Authentic-game bundle validation:** after `run.sh build`, the
-owner-only verifier now requires real guest `main/sdk` Mach-O executable
-and writable image sections, source-derived fixups/gates manifests,
-shader-map files, at least one translated iOS `*_b.metallib`,
-RomFS overlay configuration, an icon asset catalog, an embedded iOS
-provisioning profile and a verifiable Apple code signature. The actual
+owner-only verifier now requires real guest `main/sdk` non-empty
+executable/writable Mach-O sections **in the correct segments**, all
+source-derived fixups/gates manifests, the actual generated shader map,
+one matching iPhoneOS `*_b.metallib` **and** `*_b.json` reflection for
+**every mapped shader key**, the current source translation-chain version,
+PSO seed coverage, RomFS overlay configuration, a compiled icon, an
+embedded provisioning profile and a verifiable Apple code signature. The actual
 minimum iOS version must match Metal 4 (iOS 26) or M3 (iOS 18);
 `local.env` can no longer silently change that selected profile.
 The executable SHA-256 is recorded in the **private** per-run report.

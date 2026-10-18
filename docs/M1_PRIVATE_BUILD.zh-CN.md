@@ -65,12 +65,14 @@ python3 scripts/ci_production_compile.py \
 
 只有 `all` 五阶段完整通过，摘要才会标记 `end_to_end_build_stages_verified=true`；单独执行某个阶段仅返回 `partial`，不能据此宣称完整 M1 成功。
 
+**新增私有验收结果：** `m1-summary.json` 中记录 `shader_map_coverage_verified`、`shader_reflection_coverage_verified`、`shader_chain_verified`、`translated_shader_library_count`、`seeded_shader_count`，只包含布尔值与计数，不会记录商业游戏图像、着色器源码、哈希键列表或签名标识。每轮实际验证的着色器数量由用户自己合法生成的映射表决定，不凭空声称“已生成全部 6938 个”。
+
 - 若三个文件缺失、为空、包含明显的 CI 占位标记、是符号链接，脚本立即失败；**不会伪造游戏数据以凑齐 91/91**。
 - 必须严格编译 **91/91** 且无其他错误，才算该编译阶段通过。若失败，保留本机日志供定位；对外可分享的 JSON 不包含头文件原文、密钥、设备标识或原始编译报错。
 - 在 `all` 模式中，最后调用原有 `dm/ios/run.sh build`，并使用 [`m1_game_bundle.py`](../scripts/m1_game_bundle.py) 对**真实游戏包**进行更严格验证：
   - `Info.plist` 的游戏标识、`DmIOS` 可执行文件和目标系统版本正确（Metal 4 对应 iOS 26.0，M3 对应 iOS 18.0）；
-  - `otool -l` 证实真正嵌入了 **guest main/sdk** 的可执行 `__dmmainx0/x1`、`__dmsdkx0/x1` 和可写映像段 `__DMmainW`、`__DMsdkW`，不能用空壳或诊断 App 冒充；
-  - App 内实际带有 `main/sdk` 的 fixups/gates 清单、着色器映射、至少一份非空的 iOS `*_b.metallib`、RomFS 覆盖层配置和 App 图标；
+  - `otool -l` 证实真正嵌入了 **guest main/sdk** 的可执行 `__dmmainx0/x1`、`__dmsdkx0/x1` 和可写映像段 `__DMmainW`、`__DMsdkW`；逐个核对各 section 归属的 segment、非零长度和模块对应关系，不能用空壳、错放的 section 或诊断 App 冒充；
+  - App 内带有 `main/sdk` 的 fixups/gates 清单、着色器映射、RomFS 覆盖层配置和 App 图标。**不再只检查存在一份 Metal 库**：读取实际游戏数据生成的 `dm/shader_map.tsv`，校验其中每一个唯一着色器键都具有相同翻译链版本下非空的 iOS `*_b.metallib` 和配对反射 `*_b.json`；核对 JSON 的 `chain/key/route`，并与独立的 `pso_manifest.tsv` 中 S/C 预热键交叉校验。公开仓库中空白的 `shader_map.tsv` 只是生成前占位，不代表生产映射；
   - 本机 Apple 签名验证成功，并具备 `embedded.mobileprovision`，同时为二进制生成 SHA-256 以便随后真机验证时对照。
 - M1 还会在 `run.sh` 读取 `local.env` **之后** 重新强制应用用户指定的 `metal4`/`m3` 构建模式，避免旧本地配置悄悄切换部署目标。
 - **即使上述所有步骤通过，也只能称为本地真实游戏 App 已构建/签名，不能自动宣称画面、声音、存档、运行性能或真机安装已验证。** 这些需单独记录实机冒烟测试。
