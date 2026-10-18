@@ -174,6 +174,11 @@ def build_record(commit: str, profile: str) -> dict:
         "full_game_app_built": False,
         "real_game_module_sections_verified": False,
         "game_runtime_resources_verified": False,
+        "shader_map_coverage_verified": False,
+        "shader_reflection_coverage_verified": False,
+        "shader_chain_verified": False,
+        "translated_shader_library_count": None,
+        "seeded_shader_count": None,
         "app_signed_locally": False,
         "app_binary_sha256": None,
         "physical_device_installed": False,
@@ -287,6 +292,19 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                 record["game_runtime_resources_verified"] = bool(
                     artifact["game_runtime_resources_verified"]
                 )
+                record["shader_map_coverage_verified"] = bool(
+                    artifact["shader_map_coverage_verified"]
+                )
+                record["shader_reflection_coverage_verified"] = bool(
+                    artifact["shader_reflection_coverage_verified"]
+                )
+                record["shader_chain_verified"] = bool(
+                    artifact["shader_chain_verified"]
+                )
+                record["translated_shader_library_count"] = artifact[
+                    "transformed_shader_library_count"
+                ]
+                record["seeded_shader_count"] = artifact["seeded_shader_count"]
                 record["app_signed_locally"] = bool(
                     artifact["app_device_signature_verified"]
                 )

@@ -12,6 +12,7 @@ must *not* satisfy these acceptance checks.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import plistlib
 import re
@@ -43,46 +44,183 @@ def ios_version(value: object) -> tuple[int, int]:
 
 
 def require_guest_sections(otool_text: str) -> dict[str, list[str]]:
-    """Check embedded *real game* segments; a no-game shell lacks these."""
-    sections = set(re.findall(r"(?m)^\s*sectname\s+(\S+)\s*$", otool_text))
-    segments = set(re.findall(r"(?m)^\s*segname\s+(\S+)\s*$", otool_text))
+    """Verify both guest images have NONEMPTY sections in the correct segments.
+
+    Apple otool -l describes each section's own segname, which is more
+    reliable than seeing a section and unrelated segment somewhere in the file.
+    """
+    sections: dict[tuple[str, str], int] = {}
+    current: dict[str, str] | None = None
+
+    def finish() -> None:
+        if current is None or "sectname" not in current:
+            return
+        if "segname" not in current or "size" not in current:
+            raise BundleValidationError("Game Mach-O section metadata incomplete")
+        try:
+            size = int(current["size"], 0)
+        except ValueError as exc:
+            raise BundleValidationError("Invalid guest section size") from exc
+        # Apple object files can contain unrelated system/compiler sections
+        # with zero size. Reject emptiness ONLY for the required guest images.
+        key = (current["segname"], current["sectname"])
+        if key in sections:
+            raise BundleValidationError("Duplicate guest Mach-O section")
+        sections[key] = size
+
+    for raw in otool_text.splitlines():
+        line = raw.strip()
+        if line == "Section":
+            finish()
+            current = {}
+        elif line.startswith("Load command "):
+            finish()
+            current = None
+        elif current is not None:
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[0] in {"sectname", "segname", "size"}:
+                current[parts[0]] = parts[1]
+    finish()
+
     accepted: dict[str, list[str]] = {}
     for module in EXPECTED_MODULES:
-        expected_sections = {f"__dm{module}x0", f"__dm{module}x1"}
-        expected_segment = f"__DM{module}W"
-        missing = expected_sections - sections
-        if missing or expected_segment not in segments:
+        expected = {
+            ("__TEXT", f"__dm{module}x0"),
+            ("__TEXT", f"__dm{module}x1"),
+            (f"__DM{module}W", "__img"),
+        }
+        if not expected.issubset(sections):
             raise BundleValidationError(
-                f"Game guest {module} missing executable or writable Mach-O sections"
+                f"Game guest {module} missing correctly placed executable or writable Mach-O sections"
             )
-        accepted[module] = sorted(expected_sections) + [expected_segment]
-    if "__img" not in sections:
-        raise BundleValidationError("Game guest __img writable image section missing")
+        if any(sections[item] <= 0 for item in expected):
+            raise BundleValidationError(f"Empty game Mach-O guest section in {module}")
+        accepted[module] = sorted(f"{segment}/{name}" for segment, name in expected)
     return accepted
 
 
+def expected_shader_chain(header: Path | None = None) -> str:
+    """Read the tracked runtime's translation-chain version, not private data."""
+    if header is None:
+        header = Path(__file__).resolve().parents[1] / "dm/gfx/nvn/dmsh_chain.h"
+    try:
+        content = header.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise BundleValidationError("Tracked shader translation-chain header is missing") from exc
+    match = re.search(r'(?m)^#define DMSH_CHAIN "([a-f0-9]{12})"\s*$', content)
+    if not match:
+        raise BundleValidationError("Invalid tracked shader translation-chain version")
+    return match.group(1)
+
+
+def shader_keys_from_map(text: str) -> set[str]:
+    """Use precisely the map rows consumed by dmsh_build.py.
+
+    The repository keeps an empty placeholder shader_map.tsv; the real map is
+    generated from the owner's game data. A missing/empty bundle map is fatal.
+    """
+    keys: set[str] = set()
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) <= 4:
+            continue
+        if not (fields[0].endswith(".bin") or fields[0].startswith("main.rodata@")):
+            continue
+        key = fields[3]
+        if not re.fullmatch(r"[0-9a-f]{16}", key):
+            raise BundleValidationError("Malformed game shader mapping key")
+        keys.add(key)
+    if not keys:
+        raise BundleValidationError("Game shader mapping table has no real shader keys")
+    return keys
+
+
+def seed_shader_keys(text: str) -> set[str]:
+    """Cross-check shader seeds from the separate PSO warmup manifest."""
+    required = set()
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if not fields or fields[0] not in {"S", "C"}:
+            continue
+        # Existing manifests may retain blank legacy seeds.
+        if len(fields) < 2 or not fields[1].strip():
+            continue
+        match = re.fullmatch(r"([0-9a-f]{16})_b", fields[1])
+        if match is None:
+            raise BundleValidationError("Malformed seeded shader key")
+        required.add(match.group(1))
+    if not required:
+        raise BundleValidationError("Game PSO manifest has no valid shader seeds")
+    return required
+
+
+def _regular_file(path: Path) -> bool:
+    return path.is_file() and not path.is_symlink() and path.stat().st_size > 0
+
+
 def require_runtime_resources(app: Path) -> dict[str, object]:
-    """Verify necessary game-derived runtime resources exist (not their origin)."""
-    missing = [
-        path for path in EXPECTED_RUNTIME_FILES
-        if (app / path).is_symlink()
-        or not (app / path).is_file()
-        or (app / path).stat().st_size == 0
-    ]
+    """Verify the bundle includes ALL keys in its game-derived shader map."""
+    missing = [path for path in EXPECTED_RUNTIME_FILES
+               if not _regular_file(app / path)]
     if missing:
         raise BundleValidationError(
             "Signed game bundle missing required runtime resources: "
             + ", ".join(missing)
         )
-    shader_bundles = sorted(
-        path for path in (app / "msl").glob("b-*/*_b.metallib")
-        if path.is_file() and not path.is_symlink() and path.stat().st_size > 0
+    shader_map = (app / "dm/shader_map.tsv").read_text(encoding="utf-8")
+    mapping_keys = shader_keys_from_map(shader_map)
+    seeds = seed_shader_keys(
+        (app / "dm/pso_manifest.tsv").read_text(encoding="utf-8")
     )
-    if not shader_bundles:
-        raise BundleValidationError("Missing translated iPhoneOS shader libraries")
+    if not seeds.issubset(mapping_keys):
+        raise BundleValidationError(
+            "PSO manifest refers to shaders absent from the bundled game map"
+        )
+
+    chain = expected_shader_chain()
+    root = app / "msl"
+    versioned = root / ("b-" + chain)
+    if (root.is_symlink() or versioned.is_symlink()
+            or not versioned.is_dir()):
+        raise BundleValidationError("Expected game shader translation-chain directory is missing")
+
+    missing_library_count = 0
+    missing_reflection_count = 0
+    invalid_reflection_count = 0
+    for key in mapping_keys:
+        library = versioned / (key + "_b.metallib")
+        reflection = versioned / (key + "_b.json")
+        if not _regular_file(library):
+            missing_library_count += 1
+        if not _regular_file(reflection):
+            missing_reflection_count += 1
+            continue
+        try:
+            value = json.loads(reflection.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError):
+            invalid_reflection_count += 1
+            continue
+        if (not isinstance(value, dict)
+                or value.get("chain") != chain
+                or value.get("key") != key + "_b"
+                or value.get("route") != "B"):
+            invalid_reflection_count += 1
+
+    if missing_library_count or missing_reflection_count or invalid_reflection_count:
+        raise BundleValidationError(
+            "Incomplete iPhoneOS shader coverage: "
+            f"{missing_library_count} missing Metal libraries, "
+            f"{missing_reflection_count} missing reflections, "
+            f"{invalid_reflection_count} inconsistent reflections "
+            f"across {len(mapping_keys)} mapped shaders"
+        )
     return {
         "required_runtime_file_count": len(EXPECTED_RUNTIME_FILES),
-        "translated_shader_library_count": len(shader_bundles),
+        "mapped_shader_count": len(mapping_keys),
+        "seeded_shader_count": len(seeds),
+        "translated_shader_library_count": len(mapping_keys),
+        "shader_chain_verified": True,
+        "reflection_coverage_verified": True,
     }
 
 
@@ -156,6 +294,10 @@ def validate_real_game_bundle(app: Path, profile: str) -> dict[str, object]:
         "app_device_signature_verified": True,
         "actual_minimum_ios_version_verified": True,
         "transformed_shader_library_count": resources["translated_shader_library_count"],
+        "shader_map_coverage_verified": True,
+        "shader_chain_verified": resources["shader_chain_verified"],
+        "shader_reflection_coverage_verified": resources["reflection_coverage_verified"],
+        "seeded_shader_count": resources["seeded_shader_count"],
         "executable_sha256": hasher.hexdigest(),
         "source_kind": "owner-local-licensed-game",
         "real_device_installed": False,

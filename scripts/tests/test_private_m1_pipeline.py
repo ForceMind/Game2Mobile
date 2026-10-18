@@ -252,6 +252,11 @@ class FreshBuildEvidenceTests(unittest.TestCase):
                 mock.patch("scripts.m1_local_pipeline.validate_app", return_value={
                     "real_guest_macho_segments_verified": True,
                     "game_runtime_resources_verified": True,
+                    "shader_map_coverage_verified": True,
+                    "shader_reflection_coverage_verified": True,
+                    "shader_chain_verified": True,
+                    "transformed_shader_library_count": 6938,
+                    "seeded_shader_count": 181,
                     "app_device_signature_verified": True,
                     "executable_sha256": "e" * 64,
                 }),
@@ -264,6 +269,11 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertTrue(record["full_game_app_built"])
             self.assertTrue(record["real_game_module_sections_verified"])
             self.assertTrue(record["game_runtime_resources_verified"])
+            self.assertTrue(record["shader_map_coverage_verified"])
+            self.assertTrue(record["shader_reflection_coverage_verified"])
+            self.assertTrue(record["shader_chain_verified"])
+            self.assertEqual(record["translated_shader_library_count"], 6938)
+            self.assertEqual(record["seeded_shader_count"], 181)
             self.assertEqual(record["app_binary_sha256"], "e" * 64)
             self.assertEqual(len(observed), 1)
             self.assertFalse(observed[0][1].is_relative_to(ROOT))
