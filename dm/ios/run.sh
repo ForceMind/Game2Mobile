@@ -64,7 +64,17 @@ if [ "$1" = build ]; then
   # To build: J=10 IOSOUT=<this directory> python3 ../gfx/tools/dmsh_build.py $DM_ROOT/build/cache/dm/dmsh <Mac cache dir> (compile settings in tools/ios_metal.py)
   # The host loads only from DM_MSL_DIR/b-<V>/ (V = the translation chain version in dm/gfx/nvn/dmsh_chain.h); inside the App it is placed as msl/b-<V>/, carrying only the current version
   MSL=${DM_MSL_IOS:-${DM_ROOT:-$HOME/dm-work}/build/ios/dmsh_b}; V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' ../gfx/nvn/dmsh_chain.h)
-  [ -n "$V" ] && [ -d "$MSL/b-$V" ] && ls "$MSL/b-$V" | grep -q "_b.metallib$" || { t "🔴 缺 iOS 版 B 着色器 $MSL/b-${V}（见上一行出包命令；V=${V}）"; exit 1; }
+  [ -n "$V" ] || { t "🔴 缺当前着色器翻译链版本"; exit 1; }
+  # Do not spend time on Xcode packaging if even one shader-map key has no
+  # iPhoneOS Metal library, reflection JSON or completed translation receipt.
+  # The old 'ls | grep _b.metallib' check accepted one file out of thousands.
+  python3 ../../scripts/m1_shader_inventory.py cache \
+    --map ../gfx/nvn/shader_map.tsv \
+    --pso ../gfx/nvn/pso_manifest.tsv \
+    --chain-header ../gfx/nvn/dmsh_chain.h \
+    --ios-root "$MSL" \
+    --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json" \
+    || { t "🔴 iOS 着色器缓存不完整，请先从仓库根目录执行 ./setup.sh"; exit 1; }
   mkdir -p Gen/msl && cp -cR "$MSL/b-$V" Gen/msl/
   # 资源直接下载（直装包，Sources/asset_dl.m）：地址文件列表（仓库里的 asset_pointers.txt）+ 出包时的缺省下载根地址（DM_ASSET_BASE，tools/adhoc.sh 传隧道地址；没传就不带）
   # Direct asset download (direct-install package, Sources/asset_dl.m): URL file list (asset_pointers.txt in the repository) + the default download root URL at packaging time (DM_ASSET_BASE; tools/adhoc.sh passes the tunnel URL; omitted if not passed)
