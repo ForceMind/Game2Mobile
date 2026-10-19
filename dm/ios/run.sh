@@ -16,6 +16,14 @@ source tools/local_env.sh   # 本机设备配置（不进仓，见 local.env.exa
 # Normal Game2Mobile builds are unchanged when this variable is unset.
 if [ -n "${DM_M1_FRESH_DERIVED_DATA:-}" ]; then
   [ "${DM_GEN_ONLY:-0}" != 1 ] || { echo "M1 full build refuses DM_GEN_ONLY=1" >&2; exit 2; }
+  # All preparation/verification stages use the Python-selected workspace.
+  # A shared local.env must not redirect only the final App to another game's
+  # modules, RomFS or shader cache. Normal builds retain local.env behavior.
+  : "${DM_M1_REQUIRED_ROOT:?M1 requires the selected workspace}"
+  : "${DM_M1_REQUIRED_ROMFS:?M1 requires the selected RomFS}"
+  export DM_ROOT="$DM_M1_REQUIRED_ROOT"
+  export DM_ROMFS_SRC="$DM_M1_REQUIRED_ROMFS"
+  export DM_MSL_IOS="$DM_ROOT/build/ios/dmsh_b"
   DM_IOS_DD=$DM_M1_FRESH_DERIVED_DATA
   unset DM_OUT
   # Prevent local.env from accidentally switching a Metal 4 owner build into

@@ -279,6 +279,52 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertFalse(observed[0][1].is_relative_to(ROOT))
 
 
+class SourceProvenanceTests(unittest.TestCase):
+    def test_setup_tracked_mutation_stops_before_headers_or_compile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            romfs = workspace / "data/switch/3.3.94012/Update/RomFS"
+            calls = []
+            dirty = False
+
+            def check_clean():
+                if dirty:
+                    raise StageError("environment", "tracked shader lock changed")
+
+            def setup(stage, command, **kwargs):
+                nonlocal dirty
+                calls.append(stage)
+                if stage == "prepare":
+                    dirty = True
+
+            with (
+                mock.patch("scripts.m1_local_pipeline.checked_platform"),
+                mock.patch("scripts.m1_local_pipeline.tracked_clean", side_effect=check_clean),
+                mock.patch("scripts.m1_local_pipeline.ignored_headers", return_value=True),
+                mock.patch("scripts.m1_local_pipeline.head_sha", return_value="d" * 40),
+                mock.patch("scripts.m1_local_pipeline.execute", side_effect=setup),
+            ):
+                with self.assertRaisesRegex(StageError, "Review and commit"):
+                    run_pipeline("all", "metal4", workspace, romfs)
+            self.assertEqual(calls, ["preflight", "prepare"])
+            summary = next(workspace.glob("m1-private-evidence/**/m1-summary.json"))
+            data = json.loads(summary.read_text())
+            self.assertEqual(data["result"], "failed")
+            self.assertEqual(data["steps"], {"preflight": "passed", "source": "failed"})
+            self.assertFalse(data["full_game_app_built"])
+            self.assertFalse(data["end_to_end_build_stages_verified"])
+            self.assertIsNone(data["source_objects_compiled"])
+
+    def test_head_change_is_not_certified(self):
+        from scripts.m1_local_pipeline import require_source_commit
+        with (
+            mock.patch("scripts.m1_local_pipeline.tracked_clean"),
+            mock.patch("scripts.m1_local_pipeline.head_sha", return_value="b" * 40),
+        ):
+            with self.assertRaisesRegex(StageError, "Source changed"):
+                require_source_commit("a" * 40)
+
+
 class M1ShellOverrideTests(unittest.TestCase):
     """Exercise the real run.sh override in an isolated shell, without game files."""
 
@@ -314,6 +360,8 @@ class M1ShellOverrideTests(unittest.TestCase):
             if fresh is not None:
                 env["DM_M1_FRESH_DERIVED_DATA"] = fresh
                 env["DM_M1_REQUIRED_PROFILE"] = profile
+                env["DM_M1_REQUIRED_ROOT"] = "/selected/workspace"
+                env["DM_M1_REQUIRED_ROMFS"] = "/selected/RomFS"
             return subprocess.run(
                 ["bash", "-c", script], env=env,
                 capture_output=True, text=True, check=False,
@@ -338,6 +386,26 @@ class M1ShellOverrideTests(unittest.TestCase):
         result = self.run_guard("/isolated/new-derived-data", "0", "bogus")
         self.assertEqual(result.returncode, 2)
         self.assertIn("requires DM_M1_REQUIRED_PROFILE", result.stderr)
+
+    def test_selected_inputs_win_after_local_config(self):
+        script = (
+            'set -u\n'
+            'DM_ROOT=/old/workspace\n'
+            'DM_ROMFS_SRC=/old/RomFS\n'
+            'DM_MSL_IOS=/old/shaders\n' + self.override_script() +
+            '\nprintf "%s|%s|%s" "$DM_ROOT" "$DM_ROMFS_SRC" "$DM_MSL_IOS"'
+        )
+        env = os.environ.copy()
+        env.update(DM_M1_FRESH_DERIVED_DATA="/fresh/dd",
+                   DM_M1_REQUIRED_PROFILE="metal4",
+                   DM_M1_REQUIRED_ROOT="/selected/workspace with spaces",
+                   DM_M1_REQUIRED_ROMFS="/selected/RomFS with spaces")
+        result = subprocess.run(["bash", "-c", script], env=env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout,
+                         "/selected/workspace with spaces|/selected/RomFS with spaces|"
+                         "/selected/workspace with spaces/build/ios/dmsh_b")
 
     def test_normal_build_configuration_is_unchanged(self):
         result = self.run_guard(None, "1")

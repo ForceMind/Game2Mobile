@@ -84,6 +84,10 @@ python3 scripts/m1_shader_inventory.py cache \
 
 执行前会清除继承的 `DM_GEN_ONLY`、`DM_OUT` 和 `DM_IOS_DD` 等可能跳过真正编译或复用旧产物的参数。本次 `DM_IOS_DD` 强制指向独立的 `derived-data/`。即使某个本地配置再次设置跳过编译参数，**没有本次生成的 App 就会失败**，绝不接受历史包代替本次验证。
 
+M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_ROOT`、`DM_ROMFS_SRC` 与该工作区下的 iOS Shader 缓存路径。共享配置文件中的旧路径不能让最终 App 使用另一套模块或资源。普通 `run.sh` 构建仍可使用原有自定义路径。
+
+每个阶段执行前后都核对 HEAD 和已跟踪文件。`setup.sh` 可能因本机 Xcode / spirv-cross 与仓内工具锁不同而更新 `dmsh_chain.lock`、`dmsh_chain.h` 或 `c1_full.tsv`；发生这种变化时，本轮会以 `source` 阶段失败退出，不会把修改后的构建记为旧 commit 的成功结果。先在本机检查 `git diff --stat` 与具体差异，只对经审查、允许入库的工具链元数据作提交（不得加入商业游戏资源、生成头文件、私有配置或签名），再从干净提交重新运行。若不能提交这些变化，应保留本机日志并调整工具链使其符合仓内锁，不能跳过源码核对。
+
 原始日志在启动子进程**之前**便以 `0600` 权限创建，私有目录采用 `0700`，报告独占创建，禁止复用或通过符号链接指入 Git 工作树。脚本不执行任何 `git add`、GitHub API 上传或远程发布操作。日志可能包含本机路径或签名信息，**请勿直接贴到公开 Issue 或 PR**。
 
 只有 `all` 五阶段完整通过，摘要才会标记 `end_to_end_build_stages_verified=true`；单独执行某个阶段仅返回 `partial`，不能据此宣称完整 M1 成功。
