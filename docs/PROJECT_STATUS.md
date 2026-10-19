@@ -33,3 +33,12 @@ Game2Mobile is currently a Diablo II: Resurrected compatibility project, not a u
 - [中文 README](../README.zh-CN.md) / [English README](../README.md)
 - [iOS build](../dm/ios/run.sh) / [macOS build](../dm/tools/mac_app.sh)
 - [Shell builder](../dm/ios/tools/shell_build.sh)
+
+## M1 takeover verification — 2026-10-19
+
+- Remote baseline rechecked: `332b79c34abf76cba9e8e620bafdd2959ebe16b0`, product `3.3.94012-r44`; PR #10 merged, M1 issue #1 open.
+- Baseline main CI: [Linux](https://github.com/ForceMind/Game2Mobile/actions/runs/39154502564) and [Apple native / UIKit / XcodeGen](https://github.com/ForceMind/Game2Mobile/actions/runs/39154502664) completed successfully. These are source/object/project checks, not a real game link.
+- Build chain: licensed version-matched ExeFS/RomFS → `setup.sh` module patching and shader translation → private host headers and touch art → Makefile-derived Xcode inputs and guest embedding → XcodeGen profile → signed device build → bundle verification → separate device installation and gameplay checks.
+- Fixed private-build provenance: the final App uses the pipeline-selected workspace/RomFS/shader root after local configuration is loaded; tracked source or HEAD changes during any stage invalidate commit-based acceptance. Local toolchain lock changes require review and a clean commit before retrying.
+- This execution environment is Linux x86_64. The actual `all --profile metal4` invocation rejected it at the Apple Silicon platform gate. No licensed inputs, Apple signing or physical device were available to this execution; no private 91/91 compile, touch-art compilation, full game link or device success is claimed.
+- Next owner-Mac action: follow [M1 private build](M1_PRIVATE_BUILD.zh-CN.md), run `python3 scripts/m1_local_pipeline.py all --profile metal4`, retain private stage logs and summary locally, and address the first actual failure. M1 remains open.

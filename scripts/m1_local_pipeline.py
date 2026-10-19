@@ -73,6 +73,8 @@ def private_environment(
     env = base.copy()
     for key in ("DM_GEN_ONLY", "DM_OUT", "DM_IOS_DD", "DM_NOINSTALL"):
         env.pop(key, None)
+    env["DM_M1_REQUIRED_ROOT"] = str(workspace)
+    env["DM_M1_REQUIRED_ROMFS"] = str(romfs)
     env["DM_ROOT"] = str(workspace)
     env["DM_ROMFS_SRC"] = str(romfs)
     env["DM_IOS_M3"] = "1" if profile == "m3" else "0"
@@ -126,6 +128,21 @@ def head_sha() -> str:
     if result.returncode or len(result.stdout.strip()) != 40:
         raise StageError("environment", "Cannot identify the Git commit to validate")
     return result.stdout.strip()
+
+
+def require_source_commit(expected: str) -> None:
+    """Setup can update tracked shader locks; never attribute that tree to HEAD."""
+    try:
+        tracked_clean()
+        if head_sha() != expected:
+            raise StageError("environment", "Git HEAD changed during the build")
+    except StageError as exc:
+        raise StageError(
+            "source",
+            "Source changed during M1 execution. Review and commit local toolchain "
+            "lock/header/manifest updates (no game assets), then rerun from that "
+            "clean commit. This run cannot certify the original source commit.",
+        ) from exc
 
 
 def ignored_headers() -> bool:
@@ -239,6 +256,7 @@ def run_pipeline(action: str, profile: str, workspace: Path,
 
     try:
         for stage in stages:
+            require_source_commit(commit)
             print(f"Running local-only M1 stage: {stage}", flush=True)
             if stage == "preflight":
                 execute(stage, ["bash", "setup.sh", "check"],
@@ -312,11 +330,16 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                 record["full_game_app_built"] = True
             else:
                 raise StageError("arguments", "Unknown stage")
+            require_source_commit(commit)
             record["steps"][stage] = "passed"
         record["end_to_end_build_stages_verified"] = action == "all"
         record["result"] = "passed" if action == "all" else "partial"
         return record
     except StageError as error:
+        if error.stage == "source":
+            record["full_game_app_built"] = False
+            record["app_signed_locally"] = False
+            record["app_binary_sha256"] = None
         record["steps"][error.stage] = "failed"
         record["result"] = "failed"
         raise
