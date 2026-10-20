@@ -45,7 +45,7 @@ for pg in ${PAGES:-sel cls game}; do
   else
     [ $pg != sel ] && export DEVICECTL_CHILD_DM_KEYS="$(keys $pg)"
     DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_UIMSG=1 DEVICECTL_CHILD_DM_NVN_SHOT="$(frame $pg):shot_${pg}_$RUN.png" DEVICECTL_CHILD_DM_SCREEN_SHOT="$(( $(frame $pg) / 30 + 2 )):screen_${pg}_$RUN.png" \
-      DEVICECTL_CHILD_DM_WATCH=$(( $(frame $pg) / 30 + 6 )) ./run.sh boot 90 > "$P/ios_$pg.run" 2>&1
+      DEVICECTL_CHILD_DM_WATCH=$(( $(frame $pg) / 30 + 6 )) DM_RUN_COLLECT_ONLY=1 ./run.sh boot 90 > "$P/ios_$pg.run" 2>&1 || { echo "🔴 启动日志采集失败"; exit 1; }
     cp "${DM_ROOT:-$HOME/dm-work}/run/ios/out/boot.txt" "$P/ios_$pg.log"
     rm -f "$P/ios_$pg.png" "$P/ios_screen_$pg.png"
     for f in shot screen; do for x in png png.txt; do [ $f.$x = shot.png.txt ] && continue

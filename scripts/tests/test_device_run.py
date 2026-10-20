@@ -203,6 +203,24 @@ int main(void) {
         self.assertNotEqual(self.run_mode('boot', '1', TEST_SCENARIO='running').returncode, 0)
         self.assertTrue(self.release.is_file())
 
+    def test_explicit_collection_requires_a_fresh_log_and_confirmed_exit(self):
+        result = self.run_mode('boot', TEST_SCENARIO='early_exit', DM_RUN_COLLECT_ONLY='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('未验证命令完成', result.stdout)
+        for scenario in ('query_failure', 'stale_done', 'launch_failure', 'host_failure'):
+            with self.subTest(scenario=scenario):
+                self.assertNotEqual(self.run_mode('boot', TEST_SCENARIO=scenario,
+                                                 DM_RUN_COLLECT_ONLY='1').returncode, 0)
+
+    def test_existing_watch_collectors_use_explicit_collection_mode(self):
+        for name in ('frame_cmp.sh', 'pages.sh', 'bootprof.sh', 'gpu_read.sh'):
+            path = ROOT / 'dm/ios/tools' / name
+            subprocess.run(['bash', '-n', str(path)], check=True, capture_output=True)
+            for line in path.read_text().splitlines():
+                if './run.sh boot ' in line and not line.lstrip().startswith('#'):
+                    self.assertIn('DM_RUN_COLLECT_ONLY=1 ./run.sh boot ', line, name)
+                    self.assertIn('||', line, name)
+
     def test_invalid_arguments_do_not_touch_device_or_output_path(self):
         for args in ((), ('../escape',), ('boot', 'x'), ('boot', '-1'), ('boot', '0')):
             with self.subTest(args=args):

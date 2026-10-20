@@ -47,7 +47,7 @@ done
 ./run.sh install >> "$C/ios_build.log" 2>&1 || { t "🔴 真机装机失败"; tail -5 "$C/ios_build.log"; exit 1; }
 # 真机存档：App 自己把 Documents/save 换成资源里的 save_ref 新副本（DM_SAVE_FRESH）。勿用 devicectl --remove-existing-content：它会清掉整个 Documents
 # Real-device save: the App itself replaces Documents/save with a fresh copy of save_ref from its resources (DM_SAVE_FRESH). Do not use devicectl --remove-existing-content: it wipes the entire Documents
-DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_NVN_SHOT="$N:cmp_$N.png" DEVICECTL_CHILD_DM_SCREEN_SHOT="$((N / 30 + 3)):screen.png" DEVICECTL_CHILD_DM_WATCH=${DM_IOS_WATCH:-45} ./run.sh boot 120 > "$C/ios_run.log" 2>&1
+DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_NVN_SHOT="$N:cmp_$N.png" DEVICECTL_CHILD_DM_SCREEN_SHOT="$((N / 30 + 3)):screen.png" DEVICECTL_CHILD_DM_WATCH=${DM_IOS_WATCH:-45} DM_RUN_COLLECT_ONLY=1 ./run.sh boot 120 > "$C/ios_run.log" 2>&1 || { echo "🔴 启动日志采集失败"; exit 1; }
 cp "${DM_ROOT:-$HOME/dm-work}/run/ios/out/boot.txt" "$C/ios.log" 2>/dev/null
 grep -q "截图.*cmp_$N.png 成功" "$C/ios.log" || { t "🔴 真机没截到第 $N 帧（看 $C/ios.log；可加大 DM_IOS_WATCH）"; exit 1; }
 xcrun devicectl device copy from --device $D --domain-type appDataContainer --domain-identifier $B \

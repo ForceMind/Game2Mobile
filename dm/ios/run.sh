@@ -267,7 +267,15 @@ while :; do
   if [ "$ARC" != 0 ]; then
     sleep 1
     # A normal quick probe may finish between the previous copy and query.
-    if pull && completed; then t "$M 完成（本次启动回执匹配）"; cat "$O"; exit 0; fi
+    if pull; then
+      if completed; then t "$M 完成（本次启动回执匹配）"; cat "$O"; exit 0; fi
+      # Existing screenshot/measurement collectors intentionally stop via
+      # DM_WATCH. Only their explicit collection mode accepts an exited PID
+      # with a matching fresh log; it makes no completion/gameplay claim.
+      if [ "${DM_RUN_COLLECT_ONLY:-0}" = 1 ]; then
+        t "$M 日志已收集（进程已退出；未验证命令完成）"; cat "$O"; exit 0
+      fi
+    fi
     t "🔴 $M 进程已退出，缺少本次启动的完成回执"; cat "$O" 2>/dev/null; exit 1
   fi
   [ $((SECONDS - s)) -gt "$CAP" ] && { t "🔴 $M 超 ${CAP}s"; cat "$O" 2>/dev/null; exit 1; }

@@ -137,6 +137,8 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 
 宿主 `dm_main` 返回非零会记录 `FAILED dm_main <返回码>`，不再输出 DONE；脚本取得本次失败日志后立即退出。正常完成也只说明所选命令已完成，不能据此断言主菜单、画面、操作、音频、存档或性能通过。
 
+现有 `bootprof.sh`、`frame_cmp.sh`、`pages.sh` 和 `gpu_read.sh` 会主动通过 `DM_WATCH` 结束采样，因此改为显式使用 `DM_RUN_COLLECT_ONLY=1`。该模式只在确认本次 PID 已退出并拉回本次回执日志时返回“日志已收集”；不报告命令完成，后续仍由原脚本验证计时、截图和其他产物。查询失败、旧日志、启动失败和宿主非零返回继续失败。普通启动验收不设置此开关。
+
 新增 `scripts/tests/test_device_run.py` 用模拟 CoreDevice 验证返回码、锁、路径、PID、超时与旧日志拒绝，并将真实回执记录函数提取为原生 C 编译执行。模拟安装/启动不产生游戏 App 或真机证据；实际 UIKit 文件仍需真实 Apple SDK 编译，真机验证仍需受授权设备。
 
 ## English summary
