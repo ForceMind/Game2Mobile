@@ -43,7 +43,13 @@ OUT=${DM_OUT:-$(bash "../tools/product.sh" path touch)}; MODS="main sdk"
 if [ "$1" = build ]; then
   # 生成：宿主源文件/头路径/框架（取自 dm/host/Makefile）+ 映像三段内嵌汇编与 -segprot + 装载表头/门表进 App 资源 dm/
   # Generate: host source files/header paths/frameworks (taken from dm/host/Makefile) + embedded assembly for the three image segments and -segprot + load table header/gate table into the App resources dm/
-  mkdir -p Gen; for x in Gen/* Gen/.[!.]*; do [ -e "$x" ] && [ "$x" != Gen/assets ] && rm -rf "$x"; done; mkdir -p Gen/dm   # 每次重建 Gen，但留着 Gen/assets：原版衍生资源有自己的输入指纹与锁（tools/gen_assets.py），删了会和并行读它的功能用例撞（accept 红） | Rebuild Gen every time but keep Gen/assets: assets derived from the original game have their own input fingerprint and lock (tools/gen_assets.py); deleting them would collide with functional cases reading them in parallel (accept fails)
+  mkdir -p Gen || exit 1
+  for x in Gen/* Gen/.[!.]*; do
+    if { [ -e "$x" ] || [ -L "$x" ]; } && [ "$x" != Gen/assets ]; then
+      rm -rf "$x" || { t "🔴 Gen 清理失败"; exit 1; }
+    fi
+  done
+  mkdir -p Gen/dm || exit 1   # 每次重建 Gen，但留着 Gen/assets：原版衍生资源有自己的输入指纹与锁（tools/gen_assets.py），删了会和并行读它的功能用例撞（accept 红） | Rebuild Gen every time but keep Gen/assets: assets derived from the original game have their own input fingerprint and lock (tools/gen_assets.py); deleting them would collide with functional cases reading them in parallel (accept fails)
   # 产品包不监听任何端口：`listen(` 全库只许 main.m 日志端口一处，且监听线程只在 DM_LOG_PORT 测试开关下起
   # The product package listens on no port: across the whole codebase `listen(` is allowed only at the log port in main.m, and the listening thread only starts under the DM_LOG_PORT test switch
   nl=$(grep -rn 'listen(' Sources ../host --include='*.c' --include='*.m' | grep -v '^[^:]*:[0-9]*:\s*//' | wc -l | tr -d ' ')
@@ -52,19 +58,27 @@ if [ "$1" = build ]; then
   # 原版衍生资源（加宽储藏箱、百宝囊框、选角面板、小地图终点、技能图集、底部 UI v4 …）不进仓库，每次从游戏文件生成（tools/gen_assets.py；dm/README.md「从你的游戏文件生成资源」）
   # Assets derived from the original game (widened stash, pouch frame, character select panel, minimap goal, skill atlas, bottom UI v4 ...) are not committed to the repository and are generated from game files every time (tools/gen_assets.py; dm/README.md 「从你的游戏文件生成资源」(Generate assets from your game files))
   python3 tools/gen_assets.py "${DM_ROMFS_SRC:-${DM_ROOT:-$HOME/dm-work}/data/switch/3.3.94012/Update/RomFS}" || { t "🔴 gen_assets 失败（见上）"; exit 1; }
-  make -s -C ../host dm_vault_tab.h dm_hud_exp.h dm_bright_levels.inc ROMFS="${DM_ROMFS_SRC:-${DM_ROOT:-$HOME/dm-work}/data/switch/3.3.94012/Update/RomFS}" || { t "🔴 宿主表头生成失败（见上）"; exit 1; }
+  # RomFS path/content changes are not Makefile prerequisites. Regenerate
+  # all three private tables so a previous resource tree cannot supply them.
+  make -B -s -C ../host dm_vault_tab.h dm_hud_exp.h dm_bright_levels.inc ROMFS="${DM_ROMFS_SRC:-${DM_ROOT:-$HOME/dm-work}/data/switch/3.3.94012/Update/RomFS}" || { t "🔴 宿主表头生成失败（见上）"; exit 1; }
   python3 tools/gen_build.py ../host Gen > Gen/dm.xcconfig || { t "🔴 gen_build 失败"; exit 1; }
-  F=$(python3 tools/gen_embed.py $OUT Gen/embed.S $MODS) || { t "🔴 gen_embed 失败"; exit 1; }
+  F=$(python3 tools/gen_embed.py "$OUT" Gen/embed.S $MODS) || { t "🔴 gen_embed 失败"; exit 1; }
   echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
-  for m in $MODS; do cp $OUT/$m.fixups.tsv $OUT/$m.gates.tsv Gen/dm/; done
+  for m in $MODS; do
+    cp "$OUT/$m.fixups.tsv" "$OUT/$m.gates.tsv" Gen/dm/ || { t "🔴 模块运行表复制失败：$m"; exit 1; }
+  done
   # 启动块清单（缺省开预取：宿主到产物目录 = App 内 dm/ 找 bootlist.tsv）+ main.cuts.tsv（宿主据此核清单构建号）；产物没有就不带
   # Boot block list (prefetch on by default: the host looks for bootlist.tsv in the build output directory = dm/ inside the App) + main.cuts.tsv (the host uses it to check the list's build ID); not included if the build output lacks them
-  for f in bootlist.tsv main.cuts.tsv; do [ -f $OUT/$f ] && cp $OUT/$f Gen/dm/; done
+  for f in bootlist.tsv main.cuts.tsv; do
+    if [ -f "$OUT/$f" ]; then
+      cp "$OUT/$f" Gen/dm/ || { t "🔴 启动清单复制失败：$f"; exit 1; }
+    fi
+  done
   # 图形：着色器映射表（与 Mac 同一份）+ iOS 版 metallib 缓存（PC 链 iphoneos 目标，已编，按映射表全部唯一着色器键检查；APFS 克隆不占空间）
   # Graphics: shader mapping table (the same copy as on Mac) + iOS metallib cache (PC chain iphoneos target, already compiled, coverage of every unique key in the tracked shader map is required; APFS clones take no space)
-  cp ../gfx/nvn/shader_map.tsv Gen/dm/   # 映射表（B 路线只用来查阶段） | Mapping table (route B only uses it to look up the stage)
-  cp ../gfx/nvn/pso_manifest.tsv Gen/dm/   # 预热种子清单（与映射表同目录） | Warm-up seed list (same directory as the mapping table)
-  cp ../gfx/nvn/c1_full.tsv Gen/dm/   # c1 运行时下标未证有界的着色器清单（与映射表同目录；缺失则全部 c1 独占 64 KiB 并报红） | List of shaders whose c1 runtime index is not proven bounded (same directory as the mapping table; if missing, every c1 gets an exclusive 64 KiB and a failure is reported)
+  cp ../gfx/nvn/shader_map.tsv Gen/dm/ || { t "🔴 Shader 清单复制失败：shader_map.tsv"; exit 1; }   # 映射表（B 路线只用来查阶段） | Mapping table (route B only uses it to look up the stage)
+  cp ../gfx/nvn/pso_manifest.tsv Gen/dm/ || { t "🔴 Shader 清单复制失败：pso_manifest.tsv"; exit 1; }   # 预热种子清单（与映射表同目录） | Warm-up seed list (same directory as the mapping table)
+  cp ../gfx/nvn/c1_full.tsv Gen/dm/ || { t "🔴 Shader 清单复制失败：c1_full.tsv"; exit 1; }   # c1 运行时下标未证有界的着色器清单（与映射表同目录；缺失则全部 c1 独占 64 KiB 并报红） | List of shaders whose c1 runtime index is not proven bounded (same directory as the mapping table; if missing, every c1 gets an exclusive 64 KiB and a failure is reported)
   # 着色器：B 路线（Switch 原版翻译）iOS 版 <键>_b.metallib + <键>_b.json，缺失回放层报红、不回退。
   # 出包：J=10 IOSOUT=<本目录> python3 ../gfx/tools/dmsh_build.py $DM_ROOT/build/cache/dm/dmsh <Mac 缓存目录>（编译口径 tools/ios_metal.py）
   # 宿主只从 DM_MSL_DIR/b-<V>/ 加载（V = dm/gfx/nvn/dmsh_chain.h 的翻译链版本），App 内放成 msl/b-<V>/，只带当前版本
@@ -83,15 +97,21 @@ if [ "$1" = build ]; then
     --ios-root "$MSL" \
     --mac-marker "${DM_ROOT:-$HOME/dm-work}/build/cache/metal_shader_cache/b-$V/_b_build.json" \
     || { t "🔴 iOS 着色器缓存不完整，请先从仓库根目录执行 ./setup.sh"; exit 1; }
-  mkdir -p Gen/msl && cp -cR "$MSL/b-$V" Gen/msl/
+  mkdir -p Gen/msl || exit 1
+  # APFS cloning is an optimization: cross-volume or non-APFS copies may
+  # reject it. Remove any partial destination before the ordinary-copy retry.
+  if ! cp -cR "$MSL/b-$V" Gen/msl/ 2>/dev/null; then
+    rm -rf "Gen/msl/b-$V" || exit 1
+    cp -R "$MSL/b-$V" Gen/msl/ || { t "🔴 iOS Shader 缓存复制失败"; exit 1; }
+  fi
   # 资源直接下载（直装包，Sources/asset_dl.m）：地址文件列表（仓库里的 asset_pointers.txt）+ 出包时的缺省下载根地址（DM_ASSET_BASE，tools/adhoc.sh 传隧道地址；没传就不带）
   # Direct asset download (direct-install package, Sources/asset_dl.m): URL file list (asset_pointers.txt in the repository) + the default download root URL at packaging time (DM_ASSET_BASE; tools/adhoc.sh passes the tunnel URL; omitted if not passed)
-  cp asset_pointers.txt Gen/dm/; if [ -n "${DM_ASSET_BASE:-}" ]; then echo "$DM_ASSET_BASE" > Gen/dm/asset_base.txt; else rm -f Gen/dm/asset_base.txt; fi   # 没给就删掉上次的：生成物只跟本次输入走（原先只写不删，同一棵树先出带地址的包、再出不带的会沿用旧地址） | if not given, delete the previous one: the generated file follows only this run's input (it used to be written but never deleted, so building a package with an address and then one without in the same tree kept the old address)
+  cp asset_pointers.txt Gen/dm/ || { t "🔴 资源下载清单复制失败"; exit 1; }; if [ -n "${DM_ASSET_BASE:-}" ]; then echo "$DM_ASSET_BASE" > Gen/dm/asset_base.txt; else rm -f Gen/dm/asset_base.txt; fi   # 没给就删掉上次的：生成物只跟本次输入走（原先只写不删，同一棵树先出带地址的包、再出不带的会沿用旧地址） | if not given, delete the previous one: the generated file follows only this run's input (it used to be written but never deleted, so building a package with an address and then one without in the same tree kept the old address)
   # 老机型补充包的自动下载根地址（DM_ASTC_PACK_BASE，<根>/manifest.json + <根>/data/…；没传 = 只能玩家用「文件」拷，见 Sources/asset_dl.m）
   # Root URL for automatic download of the Legacy Device Pack (DM_ASTC_PACK_BASE, <root>/manifest.json + <root>/data/...; not passed = players can only copy it with the Files app, see Sources/asset_dl.m)
   rm -f Gen/dm/astc_pack_base.txt; [ -n "${DM_ASTC_PACK_BASE:-}" ] && echo "$DM_ASTC_PACK_BASE" > Gen/dm/astc_pack_base.txt
-  rm -rf Gen/save_ref; mkdir -p Gen/save_ref; if [ -d "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref/0000000000000001/0" ]; then cp -R "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref/0000000000000001/0/." Gen/save_ref/ && chmod -R u+w Gen/save_ref; elif [ "${DM_REQUIRE_SAVES:-0}" = 1 ]; then t "🔴 正式出包要带标准存档（DM_REQUIRE_SAVES=1），但 ${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref/0000000000000001/0 不在"; exit 1; fi   # 标准存档（DM_SAVE_FRESH=1 用，80 KB） | Standard save (used with DM_SAVE_FRESH=1, 80 KB)
-  rm -rf Gen/save_ref_warlock; mkdir -p Gen/save_ref_warlock; if [ -d "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref_warlock/0000000000000001/0" ]; then cp -R "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref_warlock/0000000000000001/0/." Gen/save_ref_warlock/ && chmod -R u+w Gen/save_ref_warlock; elif [ "${DM_REQUIRE_SAVES:-0}" = 1 ]; then t "🔴 正式出包要带标准存档（DM_REQUIRE_SAVES=1），但 ${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref_warlock/0000000000000001/0 不在"; exit 1; fi   # 术士存档（DM_SAVE_FRESH=warlock，浸泡 / cvd 回放用，92 KB） | Warlock save (DM_SAVE_FRESH=warlock, used for soak / cvd replay, 92 KB)
+  rm -rf Gen/save_ref; mkdir -p Gen/save_ref; if [ -d "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref/0000000000000001/0" ]; then cp -R "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref/0000000000000001/0/." Gen/save_ref/ && chmod -R u+w Gen/save_ref || { t "🔴 save_ref 复制失败"; exit 1; }; elif [ "${DM_REQUIRE_SAVES:-0}" = 1 ]; then t "🔴 正式出包要带标准存档（DM_REQUIRE_SAVES=1），但 ${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref/0000000000000001/0 不在"; exit 1; fi   # 标准存档（DM_SAVE_FRESH=1 用，80 KB） | Standard save (used with DM_SAVE_FRESH=1, 80 KB)
+  rm -rf Gen/save_ref_warlock; mkdir -p Gen/save_ref_warlock; if [ -d "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref_warlock/0000000000000001/0" ]; then cp -R "${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref_warlock/0000000000000001/0/." Gen/save_ref_warlock/ && chmod -R u+w Gen/save_ref_warlock || { t "🔴 save_ref_warlock 复制失败"; exit 1; }; elif [ "${DM_REQUIRE_SAVES:-0}" = 1 ]; then t "🔴 正式出包要带标准存档（DM_REQUIRE_SAVES=1），但 ${DM_ROOT:-$HOME/dm-work}/data/switch/save_ref_warlock/0000000000000001/0 不在"; exit 1; fi   # 术士存档（DM_SAVE_FRESH=warlock，浸泡 / cvd 回放用，92 KB） | Warlock save (DM_SAVE_FRESH=warlock, used for soak / cvd replay, 92 KB)
   # RomFS 覆盖层（底部 UI v4：Gen/assets/NativeHUD/v4 → 借用路径底图 + 手柄 HUD 布局），App 启动按 DM_ROMFS_OVERLAY 先查本层
   # 老机型补充包（DM_ASTC_PACK = 补充包目录，dm/tools/astc_pack.py 的产物）：设了才另出一套 ASTC 版覆盖层（Gen/romfs_overlay_astc*），不支持 BC 的机型用；没设（如 TestFlight）这两个目录为空
   # RomFS overlay (bottom UI v4: Gen/assets/NativeHUD/v4 → base image at the borrowed path + controller HUD layout); at App launch this layer is looked up first according to DM_ROMFS_OVERLAY
@@ -154,7 +174,8 @@ if [ "$1" = build ]; then
   xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination "$DEST" \
     -derivedDataPath "$DD" -allowProvisioningUpdates ${ASC_AUTH[@]+"${ASC_AUTH[@]}"} DM_BUILD_NUMBER=$BN ${DM_DEVICE_FAMILY:+DM_DEVICE_FAMILY=$DM_DEVICE_FAMILY} build > "$R/build.log" 2>&1 || { t "🔴 构建失败"; grep -E "error:" "$R/build.log" | head -5
       grep -q 'no devices from which to generate a provisioning profile' "$R/build.log" && t "原因：这个团队名下还没有设备。把手机用数据线连上并解锁，在本机配置里填 DM_IOS_UDID、DM_FREE_ACCOUNT=1，再构建一次"; exit 1; }
-  codesign -d --entitlements :- $APP 2>/dev/null | plutil -p - ; t "构建完成"
+  codesign --verify --deep --strict "$APP" || { t "🔴 App 签名校验失败"; exit 1; }
+  codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -p -
   # DM_NOINSTALL 保持兼容；build 现在本来就只编译，不触碰设备。
   # DM_NOINSTALL is kept for compatibility; build now only compiles anyway and does not touch the device.
   t "构建完成"; exit 0

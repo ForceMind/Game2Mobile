@@ -107,6 +107,14 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 
 参见 [完整编译覆盖率报告](PRODUCTION_COMPILE_COVERAGE.md) 和 [M1 Issue #1](https://github.com/ForceMind/Game2Mobile/issues/1)。
 
+## 资源复制与构建失败处理（2026-10-20）
+
+`run.sh build` 对模块输出目录使用引号，支持 `DM_ROOT` / `DM_OUT` 中的空格。三个私有表头每次强制重生成；切换 RomFS 时不再只依赖生成脚本的时间戳判断表头是否有效。
+
+模块 fixups/gates、Shader 清单与缓存、下载清单，以及已存在的可选启动清单和参考存档，复制失败均会停止构建。APFS `cp -cR` 克隆失败时先清理该次复制的半成品，再以 `cp -R` 重试，普通复制失败则退出。资源缓存的完整性检查仍在复制前执行。正常 `run.sh build` 在 Xcode 成功后还必须通过 `codesign --verify --deep --strict`，才会输出构建完成；M1 流水线继续执行更严格的真实游戏包验收。
+
+`scripts/tests/test_ios_build_staging.py` 在隔离目录中执行真实 `run.sh`，用明确标记的普通文本文件和外部命令替身验证路径、复制与错误传播。它不生成游戏表头、不调用真实资源生成器、不编译或签名 App；Linux 与 Apple Bash 上的通过结果都不能计入 91/91 或游戏运行验收。
+
 ## English summary
 
 Every owner-only execution uses a unique private `run-*/` directory with a fresh Xcode DerivedData path, fail-closed App validation and `0600` log/summary files. It clears inherited `DM_GEN_ONLY` and other stale-output flags; individual stages are labeled `partial`, never end-to-end success. Do not paste raw local build logs into public issues.
