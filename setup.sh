@@ -117,8 +117,10 @@ step() { local name=$1; shift; local t0; t0=$(date +%s); say "$name"; "$@" || di
 py_env() { python3 -m venv "$DM_ROOT/build/cache/dm/venv" && "$PY" -m pip install -q pillow numpy lz4 capstone unicorn; }
 [ -x "$PY" ] && "$PY" -c 'import PIL, numpy, lz4, capstone, unicorn' 2> /dev/null || step "Python 环境与包" py_env
 
-P=$(head -1 "$HERE/dm/PRODUCT")
-[ -f "$DM_ROOT/build/cache/dm/out/$P-touch/main.patched.bin" ] || step "改写主程序（三种产物）" env DM_PY="$PY" bash "$HERE/dm/tools/product.sh" build
+# A main image alone cannot certify the other modules or a completed rewrite.
+# Validate the existing source receipt and complete module set for all variants.
+bash "$HERE/dm/tools/product.sh" check || step "改写主程序（三种产物）" env DM_PY="$PY" bash "$HERE/dm/tools/product.sh" build
+bash "$HERE/dm/tools/product.sh" check || die "改写产物不完整或源码指纹过期；请检查本机 patch 日志"
 
 packs() {
   mkdir -p "$DM_ROOT/build/cache/dm/dmsh" && cd "$DM_ROOT/build/cache/dm/dmsh" || return 1

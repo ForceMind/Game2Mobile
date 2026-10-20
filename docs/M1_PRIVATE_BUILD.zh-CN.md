@@ -115,6 +115,18 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 
 `scripts/tests/test_ios_build_staging.py` 在隔离目录中执行真实 `run.sh`，用明确标记的普通文本文件和外部命令替身验证路径、复制与错误传播。它不生成游戏表头、不调用真实资源生成器、不编译或签名 App；Linux 与 Apple Bash 上的通过结果都不能计入 91/91 或游戏运行验收。
 
+## 模块缓存完成性检查（2026-10-20）
+
+`setup.sh` 不再仅检查 `main.patched.bin` 是否存在。它调用现有 `dm/tools/product.sh check`，对 keypage / rules / touch 三种产物核对：
+
+- `build_src.sha256` 中的重写器指纹与当前 `patch_nso.py` 一致；
+- 每种产物的 main / sdk / subsdk0 都有非空映像与 fixups，gates 文件存在（允许合法的空 gate 表）；
+- 没有 `.product-building` 未完成标记，并且 `product.complete.sha256` 中的最终完成指纹一致。
+
+`product.sh build` 开始处理一种产物前写入未完成标记，只有三个模块全部成功后，才复制现有源码指纹回执为完成记录并移除未完成标记。失败或中断后不得凭早期生成的 main 文件复用缓存；下一次 setup 会重新生成。旧缓存缺少完成记录，升级后会重建一次。生成后还会再次执行 check，失败则停止 setup。
+
+此检查只证明所需模块文件、源码指纹与构建完成状态符合约定，不证明游戏逻辑、二进制逐字节等价或真机可运行。对应回归测试使用明确标记的非游戏文本文件与模拟重写器，不处理商业游戏内容。
+
 ## English summary
 
 Every owner-only execution uses a unique private `run-*/` directory with a fresh Xcode DerivedData path, fail-closed App validation and `0600` log/summary files. It clears inherited `DM_GEN_ONLY` and other stale-output flags; individual stages are labeled `partial`, never end-to-end success. Do not paste raw local build logs into public issues.
