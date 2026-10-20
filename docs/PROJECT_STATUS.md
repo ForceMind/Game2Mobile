@@ -42,3 +42,11 @@ Game2Mobile is currently a Diablo II: Resurrected compatibility project, not a u
 - Fixed private-build provenance: the final App uses the pipeline-selected workspace/RomFS/shader root after local configuration is loaded; tracked source or HEAD changes during any stage invalidate commit-based acceptance. Local toolchain lock changes require review and a clean commit before retrying.
 - This execution environment is Linux x86_64. The actual `all --profile metal4` invocation rejected it at the Apple Silicon platform gate. No licensed inputs, Apple signing or physical device were available to this execution; no private 91/91 compile, touch-art compilation, full game link or device success is claimed.
 - Next owner-Mac action: follow [M1 private build](M1_PRIVATE_BUILD.zh-CN.md), run `python3 scripts/m1_local_pipeline.py all --profile metal4`, retain private stage logs and summary locally, and address the first actual failure. M1 remains open.
+
+## M1 build staging hardening — 2026-10-20
+
+- Rechecked remote main `3027208e02a44071c7faee9bc485f683827446f9`; its post-merge Linux and Apple native workflows passed. No open PR was present when this stage began.
+- Reproduced shell failures using inert copy fixtures and mocked external tools: module paths with spaces fail at guest embedding; resource-copy failures and signature-check failures can still return success.
+- `run.sh build` now quotes module/App paths, regenerates private tables each build, checks required and present-optional copy failures, retries failed APFS clones with an ordinary copy after removing partial output, and requires code-signature verification after Xcode succeeds.
+- The new orchestration regression suite runs locally on Linux and is included in the existing native Apple XcodeGen job. Generator/compiler/signing calls in that suite are mocks: it provides no game codegen, real App link, signature or device evidence.
+- The current execution environment remains Linux x86_64 without connected owner-Mac game resources, Apple signing or a physical device. M1's private 91/91, generated touch art, full game link and gameplay gates remain unverified.

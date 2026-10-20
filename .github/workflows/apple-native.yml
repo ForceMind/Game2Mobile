@@ -251,6 +251,13 @@ jobs:
           python3 scripts/ci_xcodegen_profiles.py \
             --report "$RUNNER_TEMP/game2mobile-xcodegen-report.json"
           python3 -m json.tool "$RUNNER_TEMP/game2mobile-xcodegen-report.json"
+      - name: Regression-test real build staging on native Apple Bash
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Executes run.sh with inert files and mocked generators/signing.
+          # Proves path/copy/failure handling, not a game App build.
+          python3 -m unittest scripts.tests.test_ios_build_staging -v
       - name: Save asset-free project verification report
         uses: actions/upload-artifact@v4
         with:
