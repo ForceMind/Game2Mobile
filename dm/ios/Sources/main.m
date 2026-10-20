@@ -211,6 +211,14 @@ void plog(const char *fmt, ...) {
     else if (g_log >= 0) { write(g_log, b, n); fsync(g_log); } else write(2, b, n);
 }
 
+// Optional local-run nonce: never a device/account identifier, and never used
+// by normal icon launches. Only a bounded hex value may enter the log.
+static void log_run_receipt(void) {
+    const char *receipt = getenv("DM_RUN_RECEIPT");
+    if (receipt && strlen(receipt) == 32 && strspn(receipt, "0123456789abcdef") == 32)
+        plog("RUN_RECEIPT %s", receipt);
+}
+
 // ---- 启动计时 T1–T6：零点 = 进程创建（内核 p_starttime，墙钟），单位 ms；日志开了以后写进 <模式>.txt ----
 // ---- Launch timing T1–T6: zero point = process creation (kernel p_starttime, wall clock), unit ms; written to <mode>.txt once the log is open ----
 static struct timeval g_pst;   // 进程创建时刻 | Process creation time
@@ -658,7 +666,7 @@ static void *boot_thread(void *arg) {
     plog("boot: dm_main %s", argv[1]);
     int rc = dm_main(g_boot_argc, argv);
     plog("boot: dm_main 返回 %d", rc);
-    plog("DONE");
+    if (rc) plog("FAILED dm_main %d", rc); else plog("DONE");
     return NULL;
 }
 static void run_boot(void) {
@@ -1180,6 +1188,7 @@ int main(int argc, char *argv[]) {
           plog("boot: 版本 %s 构建 %s 机型 %s 系统 %s 时间 %s", [inf[@"CFBundleShortVersionString"] description].UTF8String ?: "未知", [inf[@"CFBundleVersion"] description].UTF8String ?: "未知",
                hw, NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String, [df stringFromDate:NSDate.date].UTF8String);
         }
+        log_run_receipt();
         // 跨提交附件有效性账本的违规记录落 Documents：触发过的键以后每次启动都不再做（玩家最多见一次），也是回收现场的途径
         // Violation records of the cross-commit attachment validity ledger go to Documents: a key that has triggered is never done again on any later launch (the player sees it at most once); it is also how the diagnostic record gets collected
         setenv("DM_XV_FILE", [doc stringByAppendingPathComponent:@"xv_violation.txt"].fileSystemRepresentation, 0);
@@ -1208,6 +1217,6 @@ int main(int argc, char *argv[]) {
         else if (getenv("DM_ASSETS_TEST") || getenv("DM_TEST_BA")) { g_need_assets = 1; plog("boot: DM_ASSETS_TEST——强制走资源下载界面再就地起宿主（测这条路径）"); }
         else if (romfs_locate(why, sizeof why)) plog("boot: 游戏资源就绪，宿主等场景到前台再装载");
         else { g_need_assets = 1; plog("boot: 游戏资源还没到（%s），先显示资源下载界面", why); }
-    } else metal_cache_report_and_clean();
+    } else { log_run_receipt(); metal_cache_report_and_clean(); }
     @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(App.class)); }
 }

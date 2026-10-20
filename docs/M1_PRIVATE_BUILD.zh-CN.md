@@ -127,6 +127,18 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 
 此检查只证明所需模块文件、源码指纹与构建完成状态符合约定，不证明游戏逻辑、二进制逐字节等价或真机可运行。对应回归测试使用明确标记的非游戏文本文件与模拟重写器，不处理商业游戏内容。
 
+## 装机与启动日志验收（2026-10-20）
+
+`run.sh install` 与模式启动必须成功取得现有设备锁后才会调用 CoreDevice。设备号、Bundle ID、日志路径和 App 路径均按单个参数传递，支持工作区中的空格。缺少模式、非法模式路径或非正整数超时会在设备操作前退出。
+
+每次 `run.sh <mode> [秒数]` 生成一个随机回执，通过 `DEVICECTL_CHILD_DM_RUN_RECEIPT` 传给 App；App 只把恰好 32 位的小写十六进制回执记为 `RUN_RECEIPT <值>`。它不是设备标识或账号信息。仅包含本次回执与独立 `DONE` 行的日志，才算该命令完成；旧 boot.txt 中的 DONE、不带回执的旧安装包，不能用于本次验收。因此使用新脚本前必须重新构建并安装同版本 App。
+
+启动命令必须返回成功，并在 JSON 结果中提供有效 PID；沿用现有 `touch_e2e.sh` / `smoke.sh` 使用的 CoreDevice JSON 字段，轮询该 PID 而非模糊匹配任意 DmIOS 进程。进程提前消失、查询失败或 JSON 不可读均失败；日志先拉到临时文件，复制成功后再替换本地结果，复制失败不使用半份日志。进程退出后允许最后拉取一次，以覆盖正常短探针刚结束的情况。boot 日志未成功转正时，还会尝试 `boot.launch.txt`，同样必须匹配本次回执。
+
+宿主 `dm_main` 返回非零会记录 `FAILED dm_main <返回码>`，不再输出 DONE；脚本取得本次失败日志后立即退出。正常完成也只说明所选命令已完成，不能据此断言主菜单、画面、操作、音频、存档或性能通过。
+
+新增 `scripts/tests/test_device_run.py` 用模拟 CoreDevice 验证返回码、锁、路径、PID、超时与旧日志拒绝，并将真实回执记录函数提取为原生 C 编译执行。模拟安装/启动不产生游戏 App 或真机证据；实际 UIKit 文件仍需真实 Apple SDK 编译，真机验证仍需受授权设备。
+
 ## English summary
 
 Every owner-only execution uses a unique private `run-*/` directory with a fresh Xcode DerivedData path, fail-closed App validation and `0600` log/summary files. It clears inherited `DM_GEN_ONLY` and other stale-output flags; individual stages are labeled `partial`, never end-to-end success. Do not paste raw local build logs into public issues.

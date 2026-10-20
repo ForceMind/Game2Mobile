@@ -34,13 +34,21 @@ if [ -n "${DM_M1_FRESH_DERIVED_DATA:-}" ]; then
     *) echo "M1 full build requires DM_M1_REQUIRED_PROFILE=metal4 or m3" >&2; exit 2;;
   esac
 fi
+ACTION=${1:-}
+[ -n "$ACTION" ] || { echo "Usage: run.sh build | install | <mode> [timeout seconds]" >&2; exit 2; }
+if [ "$ACTION" != build ] && [ "$ACTION" != install ]; then
+  case "$ACTION" in *[!a-zA-Z0-9_-]*) echo "Invalid mode" >&2; exit 2;; esac
+  CAP=${2:-60}
+  case "$CAP" in ''|*[!0-9]*) echo "Invalid timeout" >&2; exit 2;; esac
+  [ "$CAP" -gt 0 ] 2>/dev/null || { echo "Timeout must be a positive integer" >&2; exit 2; }
+fi
 D=${DM_DEVICE:-}; B=${DM_BUNDLE_ID:?先在本机配置里设 DM_BUNDLE_ID（App 包名，见 dm/ios/local.env.example）}
 R=${DM_ROOT:-$HOME/dm-work}/run/ios; mkdir -p "$R/out"
 DD=${DM_IOS_DD:-$R/dd}
 APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
 t(){ echo "[$(date +%T)] $*"; }
 OUT=${DM_OUT:-$(bash "../tools/product.sh" path touch)}; MODS="main sdk"
-if [ "$1" = build ]; then
+if [ "$ACTION" = build ]; then
   # 生成：宿主源文件/头路径/框架（取自 dm/host/Makefile）+ 映像三段内嵌汇编与 -segprot + 装载表头/门表进 App 资源 dm/
   # Generate: host source files/header paths/frameworks (taken from dm/host/Makefile) + embedded assembly for the three image segments and -segprot + load table header/gate table into the App resources dm/
   mkdir -p Gen || exit 1
@@ -180,22 +188,88 @@ if [ "$1" = build ]; then
   # DM_NOINSTALL is kept for compatibility; build now only compiles anyway and does not touch the device.
   t "构建完成"; exit 0
 fi
-if [ "$1" = install ]; then
+if [ "$ACTION" = install ]; then
   local_env_need DM_DEVICE || exit 1
-  devlock_acquire "${SMOKE_OWNER:-${ACCEPT_OWNER:-run.sh install}}"
+  devlock_acquire "${SMOKE_OWNER:-${ACCEPT_OWNER:-run.sh install}}" || exit 1
   trap devlock_release EXIT
-  xcrun devicectl device install app --device $D "$APP" > $R/install.log 2>&1 || { t "🔴 装机失败"; tail -5 $R/install.log; exit 1; }
+  xcrun devicectl device install app --device "$D" "$APP" > "$R/install.log" 2>&1 || { t "🔴 装机失败"; tail -5 "$R/install.log"; exit 1; }
   t "装机完成"; exit 0
 fi
 local_env_need DM_DEVICE || exit 1
-M=$1; CAP=${2:-60}; O=$R/out/$M.txt; rm -f $O
-devlock_acquire "${SMOKE_OWNER:-${ACCEPT_OWNER:-run.sh $M}}"
+M=$ACTION; O=$R/out/$M.txt
+# This nonce binds completion to this launch, even if the device still holds
+# an earlier boot.txt while the new foreground log has not been promoted yet.
+RECEIPT=$(python3 -c 'import uuid; print(uuid.uuid4().hex)') || exit 1
+[ ${#RECEIPT} = 32 ] || exit 1
+devlock_acquire "${SMOKE_OWNER:-${ACCEPT_OWNER:-run.sh $M}}" || exit 1
 trap devlock_release EXIT
-xcrun devicectl device process launch --device $D --terminate-existing $B -mode $M > $R/launch_$M.log 2>&1
-grep -q Launched $R/launch_$M.log || { t "🔴 启动失败"; tail -8 $R/launch_$M.log; exit 1; }
-pull(){ xcrun devicectl device copy from --device $D --domain-type appDataContainer --domain-identifier $B --source Documents/$M.txt --destination $O >/dev/null 2>&1; }
-alive(){ xcrun devicectl device info processes --device $D 2>/dev/null | grep -q "DmIOS.app/DmIOS"; }
+rm -f "$O" "$O.tmp" || exit 1
+LJSON=$R/launch_$M.json; PJSON=$R/process_$M.json
+rm -f "$LJSON" || exit 1
+DEVICECTL_CHILD_DM_RUN_RECEIPT="$RECEIPT" xcrun devicectl device process launch \
+  --device "$D" --terminate-existing --json-output "$LJSON" "$B" -mode "$M" \
+  > "$R/launch_$M.log" 2>&1 || { t "🔴 启动失败"; tail -8 "$R/launch_$M.log"; exit 1; }
+# Reuse the CoreDevice process schema already used by tools/touch_e2e.sh.
+PID=$(python3 - "$LJSON" <<'PY_PID'
+import json, sys
+try:
+    pid = json.load(open(sys.argv[1]))["result"]["process"]["processIdentifier"]
+    if type(pid) is not int or pid <= 0: raise ValueError()
+except (OSError, ValueError, KeyError, TypeError):
+    raise SystemExit(2)
+print(pid)
+PY_PID
+) || { t "🔴 启动结果没有有效 PID（见本机 launch_$M.json）"; exit 1; }
+pull(){
+  local source
+  for source in "$M.txt" boot.launch.txt; do
+    [ "$source" != boot.launch.txt ] || [ "$M" = boot ] || continue
+    rm -f "$O.tmp" || return 1
+    xcrun devicectl device copy from --device "$D" --domain-type appDataContainer \
+      --domain-identifier "$B" --source "Documents/$source" --destination "$O.tmp" \
+      > "$R/pull_$M.log" 2>&1 || continue
+    # If boot log promotion failed, boot.launch.txt still holds this run.
+    grep -Fxq "RUN_RECEIPT $RECEIPT" "$O.tmp" 2>/dev/null || continue
+    mv "$O.tmp" "$O" || return 1
+    return 0
+  done
+  return 1
+}
+completed(){
+  grep -Fxq "RUN_RECEIPT $RECEIPT" "$O" 2>/dev/null || return 1
+  if grep -Eq '^FAILED dm_main -?[0-9]+$' "$O"; then
+    t "🔴 $M 宿主返回失败"; cat "$O"; exit 1
+  fi
+  grep -Fxq DONE "$O"
+}
+alive(){
+  rm -f "$PJSON" || return 2
+  xcrun devicectl device info processes --device "$D" --json-output "$PJSON" \
+    > "$R/process_$M.log" 2>&1 || return 2
+  python3 - "$PJSON" "$PID" <<'PY_ALIVE'
+import json, sys
+try:
+    processes = json.load(open(sys.argv[1]))["result"]["runningProcesses"]
+    if not isinstance(processes, list): raise ValueError()
+    for process in processes:
+        if not isinstance(process, dict) or type(process.get("processIdentifier")) is not int:
+            raise ValueError()
+except (OSError, ValueError, KeyError, TypeError):
+    raise SystemExit(2)
+raise SystemExit(0 if any(p["processIdentifier"] == int(sys.argv[2]) for p in processes) else 1)
+PY_ALIVE
+}
 s=$SECONDS; sleep 3
-while :; do pull; grep -q DONE $O 2>/dev/null && { t "$M 完成"; cat $O; exit 0; }
-  alive || { sleep 1; pull; t "$M 进程已退出"; cat $O 2>/dev/null; exit 0; }
-  [ $((SECONDS - s)) -gt $CAP ] && { t "🔴 $M 超 ${CAP}s"; cat $O 2>/dev/null; exit 1; }; sleep 3; done
+while :; do
+  if pull && completed; then t "$M 完成（本次启动回执匹配）"; cat "$O"; exit 0; fi
+  alive; ARC=$?
+  if [ "$ARC" = 2 ]; then t "🔴 设备进程查询失败（见本机 process_$M.log / .json）"; exit 1; fi
+  if [ "$ARC" != 0 ]; then
+    sleep 1
+    # A normal quick probe may finish between the previous copy and query.
+    if pull && completed; then t "$M 完成（本次启动回执匹配）"; cat "$O"; exit 0; fi
+    t "🔴 $M 进程已退出，缺少本次启动的完成回执"; cat "$O" 2>/dev/null; exit 1
+  fi
+  [ $((SECONDS - s)) -gt "$CAP" ] && { t "🔴 $M 超 ${CAP}s"; cat "$O" 2>/dev/null; exit 1; }
+  sleep 3
+done
