@@ -57,3 +57,12 @@ Game2Mobile is currently a Diablo II: Resurrected compatibility project, not a u
 - Setup's single-main-file cache shortcut was replaced with `product.sh check`, reusing the existing rewriter SHA receipt and checking all three modules in every product variant. A final completion receipt is created only after a full variant rewrite; interruption/failure leaves an unfinished marker and forces a later rebuild. Legacy caches without completion receipts rebuild once.
 - Cache and setup-stage regression tests use inert text files and a mock rewriter. They validate cache control flow only, not NSO rewriting or authentic game outputs. Existing module rewriting code is unchanged.
 - Remaining M1 dependency is still the owner's licensed inputs plus a controlled Apple Silicon Mac, local signing and device evidence. No private 91/91, full game link or gameplay result is claimed by these changes.
+
+## Device-run evidence integrity — 2026-10-20
+
+- Rechecked remote main `ef62b195f67bcc8bf9f1ac404e2e1fe91e7e4679`: post-merge Linux and Apple native workflows passed, no open PR present. Current executor remains Linux x86_64; no owner-Mac or device connection is exposed.
+- In inert control-flow reproductions, the old `run.sh` returned success for early exit, stale DONE, failed launch, and even attempted installation after a failed device lock.
+- Require device-lock success; quote install/run paths; validate modes/timeouts; honor launch return codes and structured PID results; distinguish process-query failure from a confirmed exited process. Pull logs through a temporary file and require this launch's random receipt plus an exact completion marker.
+- The actual UIKit entrypoint now logs a bounded optional run receipt and writes a failure marker instead of DONE when the guest-host entrypoint returns nonzero. Ordinary icon launches do not set the receipt. Rebuild/reinstall the App when using the updated launcher; old packages cannot satisfy the new freshness check.
+- New regressions use mock CoreDevice commands, plus native C execution of the extracted receipt logger. These prove orchestration and helper behavior only; licensed game construction, App installation, graphics/input/audio/saves and physical-device gameplay remain unverified.
+- Existing watchdog-driven screenshot/timing collectors explicitly select log-collection mode. A fresh receipt and confirmed PID exit are required; collection success is separate from command completion and downstream image/timing checks remain in place.

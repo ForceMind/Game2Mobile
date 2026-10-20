@@ -10,9 +10,9 @@ D=$DM_DEVICE; B=${DM_BUNDLE_ID:?先在本机配置里设 DM_BUNDLE_ID（App 包�
 ./run.sh build > $R/build.log 2>&1 || { echo "🔴 构建失败"; tail -5 $R/build.log; exit 1; }
 ./run.sh install >> $R/build.log 2>&1 || { echo "🔴 装机失败"; tail -5 $R/build.log; exit 1; }
 pull(){ xcrun devicectl device copy from --device $D --domain-type appDataContainer --domain-identifier $B --source "Documents/$1" --destination "$R/$2" > /dev/null 2>&1 || echo "🔴 拉 $1 失败"; }
-DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_NVN_TSV=frames_$RUN.tsv DEVICECTL_CHILD_DM_WATCH=20 ./run.sh boot 60 > $R/full.run 2>&1
+DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_NVN_TSV=frames_$RUN.tsv DEVICECTL_CHILD_DM_WATCH=20 DM_RUN_COLLECT_ONLY=1 ./run.sh boot 60 > $R/full.run 2>&1 || { echo "🔴 启动日志采集失败"; exit 1; }
 pull frames_$RUN.tsv frames_full.tsv; cp ${DM_ROOT:-$HOME/dm-work}/run/ios/out/boot.txt $R/full.log
-DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_GAME_RES=1600x900 DEVICECTL_CHILD_DM_NVN_PASSGPU=passgpu_$RUN.tsv DEVICECTL_CHILD_DM_NVN_PASSGPU_SERIAL=1 DEVICECTL_CHILD_DM_WATCH=20 ./run.sh boot 60 > $R/serial.run 2>&1
+DEVICECTL_CHILD_DM_SAVE_FRESH=1 DEVICECTL_CHILD_DM_GAME_RES=1600x900 DEVICECTL_CHILD_DM_NVN_PASSGPU=passgpu_$RUN.tsv DEVICECTL_CHILD_DM_NVN_PASSGPU_SERIAL=1 DEVICECTL_CHILD_DM_WATCH=20 DM_RUN_COLLECT_ONLY=1 ./run.sh boot 60 > $R/serial.run 2>&1 || { echo "🔴 启动日志采集失败"; exit 1; }
 pull passgpu_$RUN.tsv passgpu_serial_16x9.tsv; cp ${DM_ROOT:-$HOME/dm-work}/run/ios/out/boot.txt $R/serial.log
 python3 - $R <<'PY'
 import sys
