@@ -37,7 +37,12 @@ class BootTraceTests(unittest.TestCase):
             compiler + flags + [str(HOST_DIR / "boot_trace.c"), str(source), "-o", str(cls.binary)],
             compiler + flags + ["-DDM_BOOT_TRACE_OPTIONAL=1", str(source), "-o", str(cls.optional_binary)],
         ):
-            subprocess.run(command, check=True, capture_output=True, text=True)
+            compiled = subprocess.run(command, capture_output=True, text=True)
+            if compiled.returncode:
+                raise RuntimeError(
+                    f"Native boot trace fixture compilation failed ({compiled.returncode}):\n"
+                    f"{shlex.join(command)}\n{compiled.stdout}{compiled.stderr}"
+                )
 
     def run_fixture(self, mode=None, receipt=RECEIPT):
         env = os.environ.copy()

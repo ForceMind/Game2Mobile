@@ -391,11 +391,16 @@ class NativeBootFixtureCompatibilityTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix="g2m-boot-analyzer-")
         cls.addClassCleanup(cls.directory.cleanup)
         cls.binary = Path(cls.directory.name) / "boot-trace"
-        subprocess.run(compiler + ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
-                                   str(ROOT / "dm/host/boot_trace.c"),
-                                   str(ROOT / "dm/host/tests/boot_trace_fixture.c"),
-                                   "-o", str(cls.binary)],
-                       check=True, capture_output=True, text=True, timeout=30)
+        compiled = subprocess.run(
+            compiler + ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
+                        str(ROOT / "dm/host/boot_trace.c"),
+                        str(ROOT / "dm/host/tests/boot_trace_fixture.c"),
+                        "-o", str(cls.binary)],
+            capture_output=True, text=True, timeout=30)
+        if compiled.returncode:
+            raise RuntimeError(
+                f"Native boot fixture compilation failed (exit {compiled.returncode}):\n"
+                f"{compiled.stdout}{compiled.stderr}")
 
     def test_native_observation_orders_and_missing_dependencies(self):
         env = os.environ.copy()
