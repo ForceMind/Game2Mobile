@@ -56,9 +56,8 @@
 #include "dmsh_chain.h"   // DMSH_CHAIN：本源码树期望的 B 着色器库翻译链版本 | DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree
 #include "nvn_hmap.h"
 #include "../../host/dm.h"
-#define DM_BOOT_TRACE_OPTIONAL 1
 #include "../../host/boot_trace.h"
-#undef DM_BOOT_TRACE_OPTIONAL
+DM_BOOT_TRACE_DEFINE_FALLBACKS()
 #import <CommonCrypto/CommonDigest.h>
 #include <stdarg.h>
 #include <mach-o/dyld.h>
@@ -852,7 +851,7 @@ uint64_t mtl_sub_commit(void) {
 #endif
     // Records the first real guest command submission, not a queue request or
     // GPU completion. Optional linkage keeps standalone graphics tests intact.
-    if (boot_submitted && dm_boot_gpu_submitted) dm_boot_gpu_submitted();
+    if (boot_submitted) dm_boot_gpu_submitted();
     g_alloc_fence[g_alloc_cur] = fence;
     g_cb = nil;
     g_commit_blocks = nil;
@@ -5895,7 +5894,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
         CFTimeInterval tt = d.presentedTime;
         // A requested/dropped drawable, or the simulator path without this
         // callback, cannot certify that a frame was displayed.
-        if (tt > 0 && dm_boot_presented) dm_boot_presented();
+        if (tt > 0) dm_boot_presented();
         g_pres[pn % PRING] = (pres_ent){pn, tt > 0 ? tt : -1};
     }];
     // 每张至少显示一个出图周期：GPU 完成时刻在 120 Hz 刷新边界附近抖动时，不再出现「25 ms + 8.33 ms」成对的顿挫

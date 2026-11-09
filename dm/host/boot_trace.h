@@ -15,24 +15,23 @@
 int dm_boot_event(const char *stage, const char *status, const char *code,
                   const char *module);
 
-/* Graphics-only tests do not link the host. They may include this header with
- * DM_BOOT_TRACE_OPTIONAL and guard the two hook calls with a null check. The
- * real host links strong definitions from boot_trace.c via its source list.
- */
-#if defined(DM_BOOT_TRACE_OPTIONAL) && defined(__APPLE__)
-#define DM_BOOT_TRACE_LINK __attribute__((weak_import))
-#elif defined(DM_BOOT_TRACE_OPTIONAL) && defined(__GNUC__)
-#define DM_BOOT_TRACE_LINK __attribute__((weak))
-#else
-#define DM_BOOT_TRACE_LINK
-#endif
-
 /* At most one record of each kind per process, across all threads. After the
  * first attempt each hook only performs a relaxed atomic load and returns;
  * there is no per-frame getenv, timestamp, formatting, lock, or I/O.
  */
-void dm_boot_gpu_submitted(void) DM_BOOT_TRACE_LINK;
-void dm_boot_presented(void) DM_BOOT_TRACE_LINK;
+void dm_boot_gpu_submitted(void);
+void dm_boot_presented(void);
 
-#undef DM_BOOT_TRACE_LINK
+/* Instantiate in one graphics translation unit for binaries without the host.
+ * Undefined weak imports still fail a standalone Darwin executable link, so
+ * provide actual weak definitions, as the other graphics-only hooks do. The
+ * host's boot_trace.c definitions remain strong and replace these at link time.
+ * noinline prevents a call being reduced to the empty fallback before linking.
+ * Tests instantiate this same definition in a separate optimized object and
+ * verify that linking boot_trace.c restores real events in either link order.
+ */
+#define DM_BOOT_TRACE_DEFINE_FALLBACKS() \
+    __attribute__((weak, noinline)) void dm_boot_gpu_submitted(void) {} \
+    __attribute__((weak, noinline)) void dm_boot_presented(void) {}
+
 #endif

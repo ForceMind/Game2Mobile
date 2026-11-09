@@ -30,12 +30,23 @@ class BootTraceTests(unittest.TestCase):
         cls.addClassCleanup(cls.directory.cleanup)
         cls.binary = Path(cls.directory.name) / "boot-trace"
         cls.optional_binary = Path(cls.directory.name) / "boot-trace-optional"
+        cls.override_binaries = [
+            Path(cls.directory.name) / "boot-trace-override",
+            Path(cls.directory.name) / "boot-trace-override-reversed",
+        ]
+        optional_object = Path(cls.directory.name) / "optional.o"
+        host_object = Path(cls.directory.name) / "host.o"
         compiler = shlex.split(os.environ.get("CC", "cc"))
         flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"]
         source = TEST_DIR / "boot_trace_fixture.c"
+        host_source = HOST_DIR / "boot_trace.c"
         for command in (
-            compiler + flags + [str(HOST_DIR / "boot_trace.c"), str(source), "-o", str(cls.binary)],
-            compiler + flags + ["-DDM_BOOT_TRACE_OPTIONAL=1", str(source), "-o", str(cls.optional_binary)],
+            compiler + flags + [str(host_source), str(source), "-o", str(cls.binary)],
+            compiler + flags + ["-O2", "-DDM_BOOT_TRACE_OPTIONAL=1", "-c", str(source), "-o", str(optional_object)],
+            compiler + ["-pthread", str(optional_object), "-o", str(cls.optional_binary)],
+            compiler + flags + ["-O2", "-c", str(host_source), "-o", str(host_object)],
+            compiler + ["-pthread", str(optional_object), str(host_object), "-o", str(cls.override_binaries[0])],
+            compiler + ["-pthread", str(host_object), str(optional_object), "-o", str(cls.override_binaries[1])],
         ):
             compiled = subprocess.run(command, capture_output=True, text=True)
             if compiled.returncode:
@@ -44,13 +55,13 @@ class BootTraceTests(unittest.TestCase):
                     f"{shlex.join(command)}\n{compiled.stdout}{compiled.stderr}"
                 )
 
-    def run_fixture(self, mode=None, receipt=RECEIPT):
+    def run_fixture(self, mode=None, receipt=RECEIPT, binary=None):
         env = os.environ.copy()
         env.pop("DM_RUN_RECEIPT", None)
         if receipt is not None:
             env["DM_RUN_RECEIPT"] = receipt
         result = subprocess.run(
-            [str(self.binary)] + ([mode] if mode else []),
+            [str(binary or self.binary)] + ([mode] if mode else []),
             check=True, capture_output=True, text=True, env=env, timeout=20,
         )
         self.assertEqual(result.stdout, "")
@@ -124,6 +135,13 @@ class BootTraceTests(unittest.TestCase):
     def test_optional_graphics_hooks_link_without_host(self):
         result = subprocess.run([str(self.optional_binary)], check=True, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_strong_host_overrides_optimized_graphics_fallbacks(self):
+        for binary in self.override_binaries:
+            with self.subTest(link_order=binary.name):
+                records, _ = self.run_fixture(binary=binary)
+                self.assertEqual([record["stage"] for record in records], ["gpu_submit", "first_present"])
+                self.assertTrue(all(record["status"] == "ok" for record in records))
 
 
 if __name__ == "__main__":

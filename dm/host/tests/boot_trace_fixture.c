@@ -2,9 +2,10 @@
 #include "../boot_trace.h"
 
 #ifdef DM_BOOT_TRACE_OPTIONAL
+DM_BOOT_TRACE_DEFINE_FALLBACKS()
 int main(void) {
-    if (dm_boot_gpu_submitted) dm_boot_gpu_submitted();
-    if (dm_boot_presented) dm_boot_presented();
+    dm_boot_gpu_submitted();
+    dm_boot_presented();
     return 0;
 }
 #else
