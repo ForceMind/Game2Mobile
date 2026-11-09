@@ -121,6 +121,12 @@ and it is **not** evidence of a playable game.
 
 ## Private owner-only M1 full game build workflow (prepared, not yet executed)
 
+2026-11-09: adding `boot_trace.c` raises the current strict private target to
+**92/92**. The **88/91** results below describe the earlier source baseline.
+Build acceptance also checks the actual embedded guest bytes, runtime tables
+and shader cache against a source/profile-bound manifest. See the
+[startup diagnostics and build identity guide](STARTUP_DIAGNOSTICS.zh-CN.md).
+
 To go beyond the public Apple CI's **88/91** host object compilation,
 an owner may now run [`m1_local_pipeline.py`](../scripts/m1_local_pipeline.py)
 on their own Apple Silicon Mac. This requires the owner's legally obtained
@@ -132,7 +138,7 @@ python3 scripts/m1_local_pipeline.py all --profile metal4
 ```
 
 The workflow re-generates exactly three private RomFS headers, requires a
-strict real **91/91** ARM64 compile, then calls the existing `DmIOS` Xcode build
+strict real **92/92** ARM64 compile, then calls the existing `DmIOS` Xcode build
 and locally validates the signing. Every run has a **new isolated DerivedData directory** and it drops inherited `DM_GEN_ONLY`, `DM_OUT`, and stale build-path settings, preventing a previously compiled app from being accepted as a fresh artifact. Private logs and summaries use restrictive file permissions. A single-stage run is marked **partial**.
 Proprietary headers, original/derived game data, private logs and resulting App bundles are **never uploaded to GitHub**. See [owner-only instructions](M1_PRIVATE_BUILD.zh-CN.md).
 
@@ -150,7 +156,7 @@ The executable SHA-256 is recorded in the **private** per-run report.
 These checks reject unsigned diagnostics and game-free install shells.
 [Verifier source](../scripts/m1_game_bundle.py).
 
-**No successful private 91/91 run, full game link, signed game App or real-device
+**No successful private 92/92 run, full game link, signed game App or real-device
 gameplay is being claimed by this preparatory code change.**
 
 ## Prerequisites for the first Apple build

@@ -1,6 +1,7 @@
 // 引导：装模块后，照 SDK 里 nn::init::Start（sdk+0x2b0470）的真实顺序初始化 SDK 运行时，再进 nnMain。
 // Bootstrap: after loading the modules, initialize the SDK runtime in the real order of nn::init::Start (sdk+0x2b0470) in the SDK, then enter nnMain.
 #include "dm.h"
+#include "boot_trace.h"
 #include "front.h"
 #include <stdatomic.h>
 #include <sys/sysctl.h>
@@ -61,12 +62,14 @@ static void guest_main(void) {
     // rtld 传入的三个回调：A 只置 rtld 标志（略）、B = 各模块 DT_INIT（nnMain 前）、C = 析构（不做）
     // Copy Start step by step: _init_libc1 = __nnmusl_init_locks (initializes the stdio etc. locks as recursive locks; skipping it self-deadlocks on nested locking in putc) + __init_ssp.
     // The three callbacks passed in by rtld: A only sets an rtld flag (skipped), B = each module's DT_INIT (before nnMain), C = destructors (not done)
+    dm_boot_event("sdk_init", "begin", "", NULL);
     ((fn0)req("_init_libc0"))();
     LOG(">>> nnosInitialize"); ((fn2)req("nnosInitialize"))(hmain, 0);
     ((fn0)req("_init_libc1"))();
     LOG(">>> nninitInitializeSdkModule"); ((fn0)req("nninitInitializeSdkModule"))();
     LOG(">>> nninitStartup"); ((fn0)req("nninitStartup"))();
     ((fn0)req("_init_libc2"))();
+    dm_boot_event("sdk_init", "ok", "", NULL);
     dm_prof_mark("② SDK 初始化（nnosInitialize → nninitStartup）");
     run_module_inits();   // rtld 回调 B：各模块 DT_INIT（全局构造函数） | rtld callback B: each module's DT_INIT (global constructors)
     dm_prof_mark("③ 各模块 init_array");
@@ -75,7 +78,9 @@ static void guest_main(void) {
     game_seed_maybe(); save_throttle_patch();
     { void dm_guest_spawn_selftest(void); dm_guest_spawn_selftest(); }   // DM_GUEST_SPAWN_TEST 宿主客体线程自检（hle_guestthread.c） | DM_GUEST_SPAWN_TEST self-test of host-created guest threads (hle_guestthread.c)
     { void dm_padmode_boot(void); dm_padmode_boot(); }   // 触屏覆盖层在：布局前缀改指触屏版（dm_padmode.c），要在游戏建面板之前 | Touch overlay present: repoint the layout prefixes to the touch version (dm_padmode.c); must happen before the game builds its panels
+    dm_boot_event("guest_entry", "begin", "", NULL);
     LOG(">>> nnMain"); ((fn0)req("nnMain"))();
+    dm_boot_event("guest_entry", "ok", "returned", NULL);
     LOG("nnMain returned");
 }
 
@@ -105,10 +110,14 @@ static pthread_key_t g_race_keys[512];
 static unsigned g_race_n, g_race_want;
 static void *keyrace_thread(void *unused);
 static void host_preload(int argc, char **argv) {
+    dm_boot_event("host_start", "begin", "", NULL);
     g_t0_ns = proc_start_mono_ns();
     flags_init();
     dm_prof_mark("⓪ 进程创建 → 宿主 main（dyld）");
-    if (argc < 2) die("usage: dmhost <dir> [mod...] [-- 游戏参数...]");
+    if (argc < 2) {
+        dm_boot_event("host_start", "error", "invalid_arguments", NULL);
+        die("usage: dmhost <dir> [mod...] [-- 游戏参数...]");
+    }
     // 时区：游戏把绝对时刻换成本地时刻走两条路，都落到宿主 libc——nn::time::ToCalendarTime（hle_time.c，localtime_r）和客体 libc 的
     // localtime_r / mktime（hle_table.c 直连宿主）。所以宿主跟系统时区走，原版界面（编年史发现时刻等）才是本机时间。
     // 只有确定性对拍（DM_FIXED_TIME）钉成 UTC：同一份回放在本机（东八区）和 mini（东九区）上要换出同样的日历时刻
@@ -146,6 +155,7 @@ static void host_preload(int argc, char **argv) {
     if (g_flag.bootprof) LOG("① 细分（装载后）：探针 / 拍门 / 按键 %.1f ms、预取启动（读清单）%.1f ms、桩报告 %.1f ms", (tb - ta) / 1e6, (tc - tb) / 1e6, (now_ns() - tc) / 1e6);
     dm_prof_mark("① 宿主装载（读 NSO / 重定位 / 强制接管）");
     { void loader_hash_log(void); loader_hash_log(); }   // DM_LOADHASH=1：装载结果的地址无关哈希（loader.c） | DM_LOADHASH=1: address-independent hash of the load result (loader.c)
+    dm_boot_event("host_start", "ok", "", NULL);
 }
 static struct { int argc; char **argv; pthread_t th; _Atomic int started; } g_pre;
 static void *preload_thread(void *a) { (void)a; host_preload(g_pre.argc, g_pre.argv); return NULL; }
@@ -177,10 +187,14 @@ int main(int argc, char **argv) {
     if (atomic_load(&g_pre.started)) {
         pthread_join(g_pre.th, NULL);
         int same = argc == g_pre.argc; for (int i = 0; same && i < argc; i++) same = !strcmp(argv[i], g_pre.argv[i]);
-        if (!same) die("【红】dm_host_preload_start 的参数与 main 不同");
+        if (!same) {
+            dm_boot_event("host_start", "error", "preload_argument_mismatch", NULL);
+            die("【红】dm_host_preload_start 的参数与 main 不同");
+        }
         void crash_thread_init(void); crash_thread_init();   // 信号备用栈是每线程的：装载在别的线程上装过，本线程补上 | The signal alternate stack is per thread: loading installed it on another thread, so add it for this thread
         LOG("宿主装载已在后台提前完成（dm_host_preload_start）");
     } else host_preload(argc, argv);
     front_run(guest_main);
+    dm_boot_event("host_return", "ok", "returned", NULL);
     return 0;
 }

@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = (ROOT / "dm/PRODUCT").read_text(encoding="utf-8").strip()
 HEADER_NAMES = ("dm_vault_tab.h", "dm_hud_exp.h", "dm_bright_levels.inc")
 STAGE_COMMANDS = ("preflight", "prepare", "headers", "verify", "build")
+SOURCE_OBJECTS_EXPECTED = 92
 
 
 class StageError(RuntimeError):
@@ -99,7 +100,7 @@ def build_plan(profile: str) -> tuple[tuple[str, str], ...]:
         ("preflight", "./setup.sh check (Apple tools, game hashes, local signing)"),
         ("prepare", "./setup.sh (prepare rewritten modules and shader cache locally)"),
         ("headers", "make -C dm/host dm_vault_tab.h dm_hud_exp.h dm_bright_levels.inc"),
-        ("verify", "strict real iPhoneOS Clang, 91/91 source files with private headers"),
+        ("verify", f"strict real iPhoneOS Clang, {SOURCE_OBJECTS_EXPECTED}/{SOURCE_OBJECTS_EXPECTED} source files with private headers"),
         ("build", "dm/ios/run.sh build (actual signed DmIOS game target; no installation)"),
     )
 
@@ -111,12 +112,12 @@ def checked_platform() -> None:
 
 def tracked_clean() -> None:
     result = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=no"],
+        ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=ROOT, capture_output=True, text=True,
     )
     if result.returncode or result.stdout.strip():
         raise StageError(
-            "environment", "Tracked source has local modifications; build from a clean commit"
+            "environment", "Source has modified or untracked files; build from a clean commit"
         )
 
 
@@ -185,7 +186,7 @@ def build_record(commit: str, profile: str) -> dict:
         "report_contains_game_data": False,
         "report_contains_keys_or_device_identifiers": False,
         "uploaded_anything": False,
-        "source_objects_expected": 91,
+        "source_objects_expected": SOURCE_OBJECTS_EXPECTED,
         "source_objects_compiled": None,
         "end_to_end_build_stages_verified": False,
         "full_game_app_built": False,
@@ -198,6 +199,10 @@ def build_record(commit: str, profile: str) -> dict:
         "seeded_shader_count": None,
         "app_signed_locally": False,
         "app_binary_sha256": None,
+        "build_identity_verified": False,
+        "build_identity_fingerprint": None,
+        "embedded_guest_bytes_verified": False,
+        "bundled_shader_bytes_verified": False,
         "physical_device_installed": False,
         "physical_device_gameplay_tested": False,
         "steps": {},
@@ -291,8 +296,8 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                 )
                 comp = json.loads(private_report.read_text(encoding="utf-8"))
                 compiled = comp["profiles"][profile].get("compiled", 0)
-                if compiled != comp["sources_per_profile"] or compiled != 91:
-                    raise StageError("verify", "Strict private compile did not reach 91/91")
+                if compiled != comp["sources_per_profile"] or compiled != SOURCE_OBJECTS_EXPECTED:
+                    raise StageError("verify", f"Strict private compile did not reach {SOURCE_OBJECTS_EXPECTED}/{SOURCE_OBJECTS_EXPECTED}")
                 record["source_objects_compiled"] = compiled
             elif stage == "build":
                 # Fail closed on stale outputs and inherited shortcut switches.
@@ -327,6 +332,9 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                     artifact["app_device_signature_verified"]
                 )
                 record["app_binary_sha256"] = artifact["executable_sha256"]
+                for field in ("build_identity_verified", "build_identity_fingerprint",
+                              "embedded_guest_bytes_verified", "bundled_shader_bytes_verified"):
+                    record[field] = artifact[field]
                 record["full_game_app_built"] = True
             else:
                 raise StageError("arguments", "Unknown stage")

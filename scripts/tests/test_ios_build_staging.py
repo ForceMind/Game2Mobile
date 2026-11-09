@@ -34,6 +34,11 @@ if name == 'python3':
         dest = pathlib.Path(args[2]) / 'data'
         dest.mkdir(parents=True)
         (dest / '.build.config').write_text('vfs-root = INERT_TEST_ONLY\n')
+    elif script == 'build_identity.py':
+        # The real identity verifier has independent binary/hash tests.
+        # Here only its invocation, profile and error propagation are mocked.
+        if args[1] == os.environ.get('TEST_FAIL_IDENTITY'):
+            sys.exit(10)
 elif name == 'cp':
     failure = os.environ.get('TEST_FAIL_COPY')
     if failure and any(failure in arg for arg in args):
@@ -78,7 +83,7 @@ class IOSBuildStagingTests(unittest.TestCase):
         self.modules = self.workspace / 'module-outputs'
         self.modules.mkdir(parents=True)
         for module in ('main', 'sdk'):
-            for suffix in ('fixups.tsv', 'gates.tsv'):
+            for suffix in ('fixups.tsv', 'gates.tsv', 'cuts.tsv'):
                 (self.modules / f'{module}.{suffix}').write_text('INERT copy fixture\n')
         (self.modules / 'bootlist.tsv').write_text('INERT optional fixture\n')
         cache = self.workspace / 'build/ios/dmsh_b/b-inert'
@@ -127,6 +132,10 @@ class IOSBuildStagingTests(unittest.TestCase):
         self.assertIn('-B', self.calls('make')[0])
         self.assertEqual(len(self.calls('xcodegen')), 1)
         self.assertEqual(self.calls('xcodebuild'), [])
+        identity = [row for row in self.calls('python3') if 'build_identity.py' in row[1]]
+        self.assertEqual(len(identity), 1)
+        self.assertEqual(identity[0][2:], ['create', '--profile', 'metal4',
+                                         '--modules', str(self.modules), '--stage', 'Gen'])
 
     def test_build_arguments_keep_space_paths_and_verify_signature(self):
         self.use_space_paths()
@@ -139,9 +148,28 @@ class IOSBuildStagingTests(unittest.TestCase):
         self.assertEqual(signature[1:4], ['--verify', '--deep', '--strict'])
         self.assertEqual(signature[-1],
                          expected_dd + '/Build/Products/Release-iphoneos/DmIOS.app')
+        identity = [row for row in self.calls('python3') if 'build_identity.py' in row[1]]
+        self.assertEqual([row[2] for row in identity], ['create', 'verify'])
+        self.assertEqual(identity[1][-1], signature[-1])
+
+    def test_identity_generation_and_verification_fail_closed(self):
+        for phase in ('create', 'verify'):
+            with self.subTest(phase=phase):
+                self.trace.write_text('')
+                result = self.run_build(DM_GEN_ONLY='0', TEST_FAIL_IDENTITY=phase)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(self.calls('xcodebuild')), int(phase == 'verify'))
+
+    def test_m3_profile_reaches_both_identity_checks(self):
+        result = self.run_build(DM_GEN_ONLY='0', DM_IOS_M3='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        identity = [row for row in self.calls('python3') if 'build_identity.py' in row[1]]
+        self.assertEqual(len(identity), 2)
+        for row in identity:
+            self.assertEqual(row[row.index('--profile') + 1], 'm3')
 
     def test_required_copy_failure_never_reaches_xcode(self):
-        for failure in ('sdk.gates.tsv', 'shader_map.tsv', 'asset_pointers.txt'):
+        for failure in ('sdk.gates.tsv', 'sdk.cuts.tsv', 'shader_map.tsv', 'asset_pointers.txt'):
             with self.subTest(failure=failure):
                 self.trace.write_text('')
                 result = self.run_build(TEST_FAIL_COPY=failure)

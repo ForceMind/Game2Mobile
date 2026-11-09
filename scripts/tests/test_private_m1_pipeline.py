@@ -106,7 +106,7 @@ class OwnerPipelineTests(unittest.TestCase):
         plan = build_plan("metal4")
         self.assertEqual([name for name, _ in plan],
                          ["preflight", "prepare", "headers", "verify", "build"])
-        self.assertIn("91/91", plan[3][1])
+        self.assertIn("92/92", plan[3][1])
         self.assertNotIn("GitHub", " ".join(d for _, d in plan))
 
     def test_workspace_must_be_outside_git_checkout(self):
@@ -259,6 +259,10 @@ class FreshBuildEvidenceTests(unittest.TestCase):
                     "seeded_shader_count": 181,
                     "app_device_signature_verified": True,
                     "executable_sha256": "e" * 64,
+                    "build_identity_verified": True,
+                    "build_identity_fingerprint": "f" * 64,
+                    "embedded_guest_bytes_verified": True,
+                    "bundled_shader_bytes_verified": True,
                 }),
             ):
                 with mock.patch.dict(os.environ, {"DM_GEN_ONLY": "1"}, clear=False):
@@ -275,6 +279,10 @@ class FreshBuildEvidenceTests(unittest.TestCase):
             self.assertEqual(record["translated_shader_library_count"], 6938)
             self.assertEqual(record["seeded_shader_count"], 181)
             self.assertEqual(record["app_binary_sha256"], "e" * 64)
+            self.assertTrue(record["build_identity_verified"])
+            self.assertTrue(record["embedded_guest_bytes_verified"])
+            self.assertTrue(record["bundled_shader_bytes_verified"])
+            self.assertEqual(record["build_identity_fingerprint"], "f" * 64)
             self.assertEqual(len(observed), 1)
             self.assertFalse(observed[0][1].is_relative_to(ROOT))
 

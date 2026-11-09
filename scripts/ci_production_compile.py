@@ -2,7 +2,7 @@
 """Compile REAL Game2Mobile host Makefile sources against the iOS Apple SDK.
 
 By default this is an asset-free object compilation inventory. With the explicit
---private-derived-headers flag, a local owner can privately verify all 91/91
+--private-derived-headers flag, a local owner can privately verify all 92/92
 units using exactly three headers legally generated from their own game RomFS.
 No proprietary headers, executables, or private data enter a GitHub artifact.
 
@@ -39,9 +39,9 @@ GAME_DERIVED_INCLUDES = frozenset({
     "dm_vault_tab.h", "dm_hud_exp.h", "dm_bright_levels.inc",
     "dm_touch_native_art.c", "dm_touch_native_art.h",
 })
-# These three translation units have already compiled on Apple's own
-# iPhoneOS toolchain in earlier CI. Catch regressions unconditionally.
-MANDATORY = frozenset({"host/loader.c", "host/main.c", "gfx/nvn/nvn_mtl.m"})
+# Loader, host entry, startup tracing and the Metal backend must compile on
+# Apple's iPhoneOS toolchain even in the public asset-free inventory.
+MANDATORY = frozenset({"host/loader.c", "host/main.c", "host/boot_trace.c", "gfx/nvn/nvn_mtl.m"})
 # First real Apple compile sweep identified exactly these three units as
 # legitimately requiring game-derived private headers. New missing headers
 # elsewhere are regressions until explicitly reviewed and classified.
@@ -211,7 +211,7 @@ def main() -> int:
         if not private_output_is_safe(args.report, ROOT):
             p.error("Private-mode reports must be written outside the Git repository")
         if not args.strict:
-            p.error("Private-header mode requires --strict for exact 91/91 verification")
+            p.error("Private-header mode requires --strict for exact 92/92 verification")
 
     with tempfile.TemporaryDirectory(prefix="game2mobile-source-compile-") as temp:
         stage = Path(temp) / "sources"

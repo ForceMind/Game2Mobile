@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Asset-free integration of Game2Mobile's Mach-O section parser with Apple otool.
 
-Creates a harmless, temporary ARM64 .o with the same SECTION NAMES as
-gen_embed.py. NO game bytes are embedded, no App is linked or signed, and
+Creates harmless temporary ARM64 objects and a tiny executable with the same
+SECTION NAMES as gen_embed.py. NO game bytes are embedded or App packaged, and
 passing this check is NOT an actual game build or a playable release.
 """
 from __future__ import annotations
@@ -14,6 +14,7 @@ import re
 import sys
 
 from m1_game_bundle import BundleValidationError, require_guest_sections
+from build_identity import PAGE, guest_sections
 
 
 def run() -> int:
@@ -70,7 +71,27 @@ def run() -> int:
             pass
         else:
             raise RuntimeError("Incorrect segment unexpectedly passed verification")
-    print("Apple ARM64 Mach-O and real otool section parsing passed (fixture only).")
+        # Exercise the new binary parser against an ACTUAL Apple-linked thin
+        # MH_EXECUTE, including segment protections and linker padding. The
+        # synthetic executable is never run, packaged as an App or installed.
+        main = root / "fixture-main.c"
+        main.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        executable = root / "fixture-executable"
+        subprocess.run([
+            "xcrun", "--sdk", "iphoneos", "clang",
+            "-target", "arm64-apple-ios26.0", "-isysroot", sdk,
+            str(main), str(obj), "-o", str(executable),
+            "-Wl,-segprot,__DMmainW,rw,rw", "-Wl,-segprot,__DMsdkW,rw,rw",
+        ], check=True, capture_output=True, text=True)
+        embedded = guest_sections(executable)
+        if len(embedded) != 6:
+            raise RuntimeError("Apple-linked fixture lacks six guest sections")
+        with executable.open("rb") as stream:
+            for offset, size in embedded.values():
+                stream.seek(offset)
+                if size != PAGE or stream.read(size) != bytes(PAGE):
+                    raise RuntimeError("Apple-linked fixture guest bytes or padding changed")
+    print("Apple ARM64 object/executable section parsing and bytes passed (fixture only).")
     return 0
 
 

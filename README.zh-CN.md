@@ -6,6 +6,8 @@
 
 > **开发与维护：** [M1 私有资源真实构建流程](docs/M1_PRIVATE_BUILD.zh-CN.md) · [构建与发布验收清单](docs/BUILD_AND_RELEASE.zh-CN.md) · [独立品牌图标](assets/brand/README.md) · [源码审查记录](docs/REPO_AUDIT_2026-10-15.zh-CN.md)。
 
+> **启动排查：** [启动日志与构建身份手册](docs/STARTUP_DIAGNOSTICS.zh-CN.md) 说明如何分析同次运行、核对构建输入，以及区分首帧证据与游戏可玩性。
+
 
 **开源的《暗黑破坏神 II：狱火重生》术士君临 iOS / macOS 兼容层。** 把你自己购买的 Nintendo Switch 版游戏（含「术士君临」资料片）完整带到 iPhone、iPad 和 Mac 上：原版内核原生执行，整套操作为触屏重做，稳定 60 帧，一秒进局。现在也有原生的 macOS 版（第一版）：Apple 芯片的 Mac 上双击启动，键盘、鼠标、手柄都能用。
 

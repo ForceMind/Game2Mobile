@@ -73,11 +73,11 @@ if [ "$ACTION" = build ]; then
   F=$(python3 tools/gen_embed.py "$OUT" Gen/embed.S $MODS) || { t "🔴 gen_embed 失败"; exit 1; }
   echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
   for m in $MODS; do
-    cp "$OUT/$m.fixups.tsv" "$OUT/$m.gates.tsv" Gen/dm/ || { t "🔴 模块运行表复制失败：$m"; exit 1; }
+    cp "$OUT/$m.fixups.tsv" "$OUT/$m.gates.tsv" "$OUT/$m.cuts.tsv" Gen/dm/ || { t "🔴 模块运行表复制失败：$m"; exit 1; }
   done
-  # 启动块清单（缺省开预取：宿主到产物目录 = App 内 dm/ 找 bootlist.tsv）+ main.cuts.tsv（宿主据此核清单构建号）；产物没有就不带
-  # Boot block list (prefetch on by default: the host looks for bootlist.tsv in the build output directory = dm/ inside the App) + main.cuts.tsv (the host uses it to check the list's build ID); not included if the build output lacks them
-  for f in bootlist.tsv main.cuts.tsv; do
+  # cuts.tsv 是重写器固定输出，构建身份核验要求每个模块都有；启动预取清单仍为可选。
+  # Each rewriter emits cuts.tsv with its build ID; only the boot prefetch list is optional.
+  for f in bootlist.tsv; do
     if [ -f "$OUT/$f" ]; then
       cp "$OUT/$f" Gen/dm/ || { t "🔴 启动清单复制失败：$f"; exit 1; }
     fi
@@ -154,6 +154,11 @@ if [ "$ACTION" = build ]; then
     [ -z "$FREE" ] || t "按免费账号生成：不带 iCloud / 持续执行 / 增加内存上限 / 扩展虚拟寻址，也不带资源下载扩展（只占一个应用标识）"
     [ "${DM_IOS_M3:-0}" != 1 ] || t "按老接口版生成：部署目标 iOS 18.0、图形后端不用 Metal 4"
   fi
+  # Bind staged module bytes/tables and shader cache to this source/profile.
+  # Archive helpers also carry this manifest when using DM_GEN_ONLY.
+  PROFILE=metal4; [ "${DM_IOS_M3:-0}" != 1 ] || PROFILE=m3
+  python3 ../../scripts/build_identity.py create --profile "$PROFILE" \
+    --modules "$OUT" --stage Gen || { t "🔴 构建身份清单生成失败"; exit 1; }
   [ "${DM_GEN_ONLY:-}" = 1 ] && { t "生成完成（DM_GEN_ONLY）"; exit 0; }   # tools/testflight.sh 只要生成，自己 archive | tools/testflight.sh only needs the generation step and does the archive itself
   asc_auth   # App Store Connect API 密钥（有就带上，供签名自动注册 App Group 等能力；见 tools/asc_env.sh） | App Store Connect API key (included if present, so signing can auto-register capabilities such as the App Group; see tools/asc_env.sh)
   # 开发包带上被测提交的标识（真机收数时把包里的标识读出来核对，不靠「锁内装过包」推断）：构建号 = HEAD 的提交时间戳，
@@ -183,6 +188,8 @@ if [ "$ACTION" = build ]; then
     -derivedDataPath "$DD" -allowProvisioningUpdates ${ASC_AUTH[@]+"${ASC_AUTH[@]}"} DM_BUILD_NUMBER=$BN ${DM_DEVICE_FAMILY:+DM_DEVICE_FAMILY=$DM_DEVICE_FAMILY} build > "$R/build.log" 2>&1 || { t "🔴 构建失败"; grep -E "error:" "$R/build.log" | head -5
       grep -q 'no devices from which to generate a provisioning profile' "$R/build.log" && t "原因：这个团队名下还没有设备。把手机用数据线连上并解锁，在本机配置里填 DM_IOS_UDID、DM_FREE_ACCOUNT=1，再构建一次"; exit 1; }
   codesign --verify --deep --strict "$APP" || { t "🔴 App 签名校验失败"; exit 1; }
+  python3 ../../scripts/build_identity.py verify --profile "$PROFILE" \
+    --app "$APP" || { t "🔴 App 与本次构建输入不一致"; exit 1; }
   codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -p -
   # DM_NOINSTALL 保持兼容；build 现在本来就只编译，不触碰设备。
   # DM_NOINSTALL is kept for compatibility; build now only compiles anyway and does not touch the device.

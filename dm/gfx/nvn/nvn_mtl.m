@@ -56,6 +56,9 @@
 #include "dmsh_chain.h"   // DMSH_CHAIN：本源码树期望的 B 着色器库翻译链版本 | DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree
 #include "nvn_hmap.h"
 #include "../../host/dm.h"
+#define DM_BOOT_TRACE_OPTIONAL 1
+#include "../../host/boot_trace.h"
+#undef DM_BOOT_TRACE_OPTIONAL
 #import <CommonCrypto/CommonDigest.h>
 #include <stdarg.h>
 #include <mach-o/dyld.h>
@@ -837,14 +840,19 @@ uint64_t mtl_sub_commit(void) {
     void arena_commit(uint64_t fence); arena_commit(fence);
     res_commit();
 #if DM_NVN_M3
+    int boot_submitted = g_cb != nil;
     [g_cb encodeSignalEvent:g_ev value:fence];
     [g_cb commit];
 #else
+    int boot_submitted = g_cb != nil && g_q4 != nil;
     [g_cb endCommandBuffer];
     CBUF buffers[] = {g_cb};
     [g_q4 commit:buffers count:1 options:o];
     [g_q4 signalEvent:g_ev value:fence];
 #endif
+    // Records the first real guest command submission, not a queue request or
+    // GPU completion. Optional linkage keeps standalone graphics tests intact.
+    if (boot_submitted && dm_boot_gpu_submitted) dm_boot_gpu_submitted();
     g_alloc_fence[g_alloc_cur] = fence;
     g_cb = nil;
     g_commit_blocks = nil;
@@ -5885,6 +5893,9 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     uint64_t pn = ticket;   // 按游戏出图序号（票号）记上屏时刻：hle 的上屏统计按「游戏第 n 次出图」取；显示节拍路径里实际出图次数 ≠ 游戏出图次数（旧帧会被合并丢弃） | Record the present time by the game's present sequence number (ticket number): hle's present statistics are taken by "the game's nth present"; in the display link path the actual present count != the game's present count (old frames get merged and dropped)
     [dr addPresentedHandler:^(id<MTLDrawable> d) {   // 真实呈现时刻（屏幕上真正换上这一帧的时间，CACurrentMediaTime 基准） | Actual presentation time (the time this frame is really put on screen, CACurrentMediaTime base)
         CFTimeInterval tt = d.presentedTime;
+        // A requested/dropped drawable, or the simulator path without this
+        // callback, cannot certify that a frame was displayed.
+        if (tt > 0 && dm_boot_presented) dm_boot_presented();
         g_pres[pn % PRING] = (pres_ent){pn, tt > 0 ? tt : -1};
     }];
     // 每张至少显示一个出图周期：GPU 完成时刻在 120 Hz 刷新边界附近抖动时，不再出现「25 ms + 8.33 ms」成对的顿挫

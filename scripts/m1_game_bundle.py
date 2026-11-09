@@ -18,10 +18,16 @@ import plistlib
 import re
 import subprocess
 
+try:
+    from .build_identity import IdentityError, verify_identity
+except ImportError:  # Standalone owner build scripts.
+    from build_identity import IdentityError, verify_identity
+
 EXPECTED_MODULES = ("main", "sdk")
 EXPECTED_RUNTIME_FILES = (
     "dm/main.fixups.tsv", "dm/main.gates.tsv",
     "dm/sdk.fixups.tsv", "dm/sdk.gates.tsv",
+    "dm/main.cuts.tsv", "dm/sdk.cuts.tsv", "dm/build_identity.json",
     "dm/shader_map.tsv", "dm/pso_manifest.tsv",
     "romfs_overlay/data/.build.config",
     "Assets.car", "embedded.mobileprovision",
@@ -155,14 +161,14 @@ def seed_shader_keys(text: str) -> set[str]:
     return required
 
 
-def _regular_file(path: Path) -> bool:
-    return path.is_file() and not path.is_symlink() and path.stat().st_size > 0
+def _regular_file(path: Path, *, empty: bool = False) -> bool:
+    return path.is_file() and not path.is_symlink() and (empty or path.stat().st_size > 0)
 
 
 def require_runtime_resources(app: Path) -> dict[str, object]:
     """Verify the bundle includes ALL keys in its game-derived shader map."""
     missing = [path for path in EXPECTED_RUNTIME_FILES
-               if not _regular_file(app / path)]
+               if not _regular_file(app / path, empty=path.endswith(".gates.tsv"))]
     if missing:
         raise BundleValidationError(
             "Signed game bundle missing required runtime resources: "
@@ -273,6 +279,11 @@ def validate_real_game_bundle(app: Path, profile: str) -> dict[str, object]:
     load_commands = _apple_tool(["otool", "-l", str(executable)], "Mach-O sections")
     sections = require_guest_sections(load_commands)
     resources = require_runtime_resources(app)
+    try:
+        identity = verify_identity(app, profile, require_clean=True)
+    except (IdentityError, OSError, UnicodeError) as exc:
+        message = str(exc) if isinstance(exc, IdentityError) else "Unreadable local build identity inputs"
+        raise BundleValidationError(message) from exc
 
     # Device signing, not only an ad-hoc Mach-O signature, is required:
     # a provisioning profile must be embedded for this internal iPhoneOS App.
@@ -289,6 +300,7 @@ def validate_real_game_bundle(app: Path, profile: str) -> dict[str, object]:
         for chunk in iter(lambda: game_file.read(1024 * 1024), b""):
             hasher.update(chunk)
     return {
+        **identity,
         "real_guest_macho_segments_verified": True,
         "guest_module_count": len(sections),
         "game_runtime_resources_verified": True,
