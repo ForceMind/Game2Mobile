@@ -76,10 +76,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          make --no-print-directory -C dm/gfx/tests t_dirty_slots t_dirty_race
+          make --no-print-directory -C dm/gfx/tests t_dirty_slots t_dirty_race t_dirty_init
           python3 - <<'PY'
           import subprocess
-          for test in ("t_dirty_slots", "t_dirty_race"):
+          for test in ("t_dirty_slots", "t_dirty_race", "t_dirty_init"):
               print("Run asset-free native dirty tracker:", test, flush=True)
               subprocess.run(["./dm/gfx/tests/" + test], check=True, timeout=30)
           PY
@@ -232,10 +232,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          make --no-print-directory -C dm/gfx/tests t_dirty_slots t_dirty_race
+          make --no-print-directory -C dm/gfx/tests t_dirty_slots t_dirty_race t_dirty_init
           python3 - <<'PY'
           import subprocess
-          for test in ("t_dirty_slots", "t_dirty_race"):
+          for test in ("t_dirty_slots", "t_dirty_race", "t_dirty_init"):
               print("Run asset-free native dirty tracker:", test, flush=True)
               subprocess.run(["./dm/gfx/tests/" + test], check=True, timeout=30)
           PY
