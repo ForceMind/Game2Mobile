@@ -82,7 +82,7 @@ python3 scripts/m1_shader_inventory.py cache \
 
 ## 验收与安全边界
 
-每次运行都会在 `DM_ROOT/m1-private-evidence/<commit>/<profile>/run-*/` 创建**全新的**私有证据目录，包含只属于本次运行的 `m1-summary.json`、阶段日志以及完整构建专用的 `derived-data/`。同一提交和配置重复运行也不会覆盖历史证据；不会沿用上一次的 `DmIOS.app`。
+每次运行都会在 `DM_ROOT/m1-private-evidence/<commit>/<profile>/run-*/` 创建**全新的**私有证据目录，包含只属于本次运行的 `m1-summary.json`、原子更新的 `m1-job-status.json`（0600）、阶段日志以及完整构建专用的 `derived-data/`。同一提交和配置重复运行也不会覆盖历史证据；不会沿用上一次的 `DmIOS.app`。
 
 执行前会清除继承的 `DM_GEN_ONLY`、`DM_OUT` 和 `DM_IOS_DD` 等可能跳过真正编译或复用旧产物的参数。本次 `DM_IOS_DD` 强制指向独立的 `derived-data/`。即使某个本地配置再次设置跳过编译参数，**没有本次生成的 App 就会失败**，绝不接受历史包代替本次验证。
 
@@ -93,6 +93,15 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 原始日志在启动子进程**之前**便以 `0600` 权限创建，私有目录采用 `0700`，报告独占创建，禁止复用或通过符号链接指入 Git 工作树。脚本不执行任何 `git add`、GitHub API 上传或远程发布操作。日志可能包含本机路径或签名信息，**请勿直接贴到公开 Issue 或 PR**。
 
 只有 `all` 五阶段完整通过，摘要才会标记 `end_to_end_build_stages_verified=true`；单独执行某个阶段仅返回 `partial`，不能据此宣称完整 M1 成功。
+
+可在另一个本机终端只读查询同一次运行的阶段状态：
+
+```bash
+python3 scripts/g2mctl.py job-status --status-file \
+  "/private/path/to/m1-private-evidence/<commit>/<profile>/run-xxx/m1-job-status.json"
+```
+
+此文件用原子替换写入，状态为 `running/failed/partial/passed`，只含阶段名、提交、配置、布尔值和随机任务 ID；原始日志、游戏文件与密钥仍在私有位置，不读取或上传。完整说明见 [只读 AI 操作入口](AI_OPERATOR_CLI.zh-CN.md)。即使阶段状态为 `passed`，**仍不能称为真机可玩**。
 
 **新增私有验收结果：** `m1-summary.json` 中记录 `shader_map_coverage_verified`、`shader_reflection_coverage_verified`、`shader_chain_verified`、`translated_shader_library_count`、`seeded_shader_count`，只包含布尔值与计数，不会记录商业游戏图像、着色器源码、哈希键列表或签名标识。每轮实际验证的着色器数量由用户自己合法生成的映射表决定，不凭空声称“已生成全部 6938 个”。
 

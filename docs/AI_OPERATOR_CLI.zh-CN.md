@@ -11,6 +11,8 @@ python3 scripts/g2mctl.py capabilities
 python3 scripts/g2mctl.py status --log "/private/local/boot.txt"
 python3 scripts/g2mctl.py next --log "/private/local/boot.txt" --run-id 0123456789abcdef0123456789abcdef
 python3 scripts/g2mctl.py diagnose --log "/private/local/boot.txt"
+# 显式读取本机 M1 流水线在私有证据目录内生成的原子状态快照
+python3 scripts/g2mctl.py job-status --status-file "/private/local/m1-private-evidence/<commit>/<profile>/run-xxx/m1-job-status.json"
 # 只有显式指定真实 App 与目标配置，才开始严格验证内嵌游戏/着色器字节：
 python3 scripts/g2mctl.py status --app "/private/local/DmIOS.app" --profile metal4 --require-clean
 ```
@@ -28,3 +30,11 @@ python3 scripts/g2mctl.py status --app "/private/local/DmIOS.app" --profile meta
 `python3 scripts/g2mctl.py build` 会**明确失败**，返回 `NOT_SUPPORTED`，不会默默调用现有 M1 构建流程。当前无 HTTP 端点，因此没有打开的端口、令牌管理或远程写入能力。未来把 GUI、AI 与构建任务接到同一个执行器之前，需要实现原子 JobRequest/JobEvent 状态、取消/中断、权限边界和显式凭据/签名操作授权；这属于 S2-08/09 的后续阶段，**尚未交付**。
 
 本接口的测试随仓库现有 `python3 -m unittest discover -s scripts/tests -v` 自动运行。它们只用合成测试记录，不能作为 D2R 真机首帧、帧率或存档验收凭据。更多数据定义见 [启动诊断手册](STARTUP_DIAGNOSTICS.zh-CN.md)、[S2Arm 整合计划](S2ARM_INTEGRATION_PLAN.zh-CN.md)。
+
+## M1 流水线过程状态（S2-08 第一阶段）
+
+`scripts/m1_local_pipeline.py` 执行 `preflight/prepare/headers/verify/build` 时，在**它新建的私有证据目录**中用原子替换、文件权限 `0600` 写 `m1-job-status.json`：启动时 `running`，进入和通过每个阶段时更新；失败时记录失败阶段，全部五阶段通过时为 `passed`，仅独立阶段通过时为 `partial`。原有最终只写一次的 `m1-summary.json` 仍保留。
+
+`g2mctl.py job-status` 只读取**用户显式给定**的状态文件，拒绝超长 JSON、符号链接、重复键、未知版本和不一致的阶段/结果状态；不搜索、不读取阶段私有日志，不输出任何输入路径。返回 `M1_JOB_RUNNING`、`M1_JOB_FAILED`、`M1_JOB_PARTIAL`（退出码 1），或 `M1_STAGES_PASSED`（退出码 0）。错误格式为 `M1_STATUS_INVALID`（退出码 2）。即使 `M1_STAGES_PASSED`，含义也只限于**本机程序报告所有构建阶段通过**；JSON 可由本地文件拥有者修改，不是签名证明，不代表安装或真机游戏可玩。
+
+这不是统一 GUI/AI 写入执行器。构建命令仍由用户在本机显式执行；CLI 无自动构建、安装、远程控制、HTTP 端口、凭据访问或上传。后续共享任务执行和可取消操作仍属于 S2-08/09 的未交付部分。
