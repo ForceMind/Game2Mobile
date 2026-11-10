@@ -26,13 +26,16 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import uuid
 
 try:
     from .private_build_inputs import inspect_private_headers, PrivateInputError
     from .m1_game_bundle import validate_real_game_bundle, BundleValidationError
+    from .m1_job_status import publish_job_status
 except ImportError:  # Invoked as a standalone script from the repository root.
     from private_build_inputs import inspect_private_headers, PrivateInputError
     from m1_game_bundle import validate_real_game_bundle, BundleValidationError
+    from m1_job_status import publish_job_status
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = (ROOT / "dm/PRODUCT").read_text(encoding="utf-8").strip()
@@ -258,10 +261,19 @@ def run_pipeline(action: str, profile: str, workspace: Path,
         env["PATH"] = str(venv_bin) + os.pathsep + env.get("PATH", "")
     record = build_record(commit, profile)
     stages = STAGE_COMMANDS if action == "all" else (action,)
+    # Safe local-only run identifier; never a device/account/signing identifier.
+    job_id = uuid.uuid4().hex
 
+    def checkpoint(state: str, stage: str | None = None) -> None:
+        publish_job_status(evidence, job_id=job_id, commit=commit,
+                           profile=profile, action=action, state=state,
+                           current_stage=stage, record=record)
+
+    checkpoint("running")
     try:
         for stage in stages:
             require_source_commit(commit)
+            checkpoint("running", stage)
             print(f"Running local-only M1 stage: {stage}", flush=True)
             if stage == "preflight":
                 execute(stage, ["bash", "setup.sh", "check"],
@@ -340,8 +352,10 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                 raise StageError("arguments", "Unknown stage")
             require_source_commit(commit)
             record["steps"][stage] = "passed"
+            checkpoint("running")
         record["end_to_end_build_stages_verified"] = action == "all"
         record["result"] = "passed" if action == "all" else "partial"
+        checkpoint(record["result"])
         return record
     except StageError as error:
         if error.stage == "source":
@@ -350,6 +364,7 @@ def run_pipeline(action: str, profile: str, workspace: Path,
             record["app_binary_sha256"] = None
         record["steps"][error.stage] = "failed"
         record["result"] = "failed"
+        checkpoint("failed", error.stage)
         raise
     finally:
         # This JSON is metadata only. Raw generated headers, compiled game

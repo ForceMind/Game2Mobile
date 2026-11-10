@@ -21,13 +21,15 @@ import sys
 if __package__:
     from .boot_diagnostics import analyze_log
     from .build_identity import IdentityError, ROOT, verify_identity
+    from .m1_job_status import JobStatusError, read_job_status
 else:
     from boot_diagnostics import analyze_log
     from build_identity import IdentityError, ROOT, verify_identity
+    from m1_job_status import JobStatusError, read_job_status
 
 SCHEMA = "game2mobile.operator.v1"
 CAPABILITIES = {"capabilities": True, "status": True, "next": True,
-                "diagnose": True, "build": False, "install": False,
+                "diagnose": True, "job-status": True, "build": False, "install": False,
                 "launch": False, "http_control": False}
 ERRORS = {
     "first_present_observed": "FIRST_PRESENT_OBSERVED",
@@ -61,6 +63,10 @@ def parser() -> JsonArgumentParser:
             sub.add_argument("--app", type=Path, help="Explicit final DmIOS.app to verify")
             sub.add_argument("--profile", choices=("metal4", "m3"))
             sub.add_argument("--require-clean", action="store_true")
+    # A progress file must be selected explicitly: never scan an owner's
+    # private evidence directory or infer success from a previous run.
+    job = subs.add_parser("job-status", help="Read an explicit private M1 status snapshot")
+    job.add_argument("--status-file", type=Path, required=True)
     # An explicit unsupported command must never silently execute a build.
     subs.add_parser("build", help="Not yet implemented; fails safely")
     return result
@@ -92,6 +98,18 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
     if command == "build":
         return _response(command, "NOT_SUPPORTED", 3,
                          next_action="Use the existing local M1 pipeline explicitly; no build was started.")
+    if command == "job-status":
+        try:
+            job = read_job_status(args.status_file)
+        except (JobStatusError, OSError, ValueError, UnicodeError, RecursionError):
+            return _response(command, "M1_STATUS_INVALID", 2, playability="unverified")
+        code, exit_code = {
+            "running": ("M1_JOB_RUNNING", 1),
+            "failed": ("M1_JOB_FAILED", 1),
+            "partial": ("M1_JOB_PARTIAL", 1),
+            "passed": ("M1_STAGES_PASSED", 0),
+        }[job["state"]]
+        return _response(command, code, exit_code, job=job, playability="unverified")
     if command == "status" and ((args.app is None) != (args.profile is None) or
                                  (args.require_clean and args.app is None)):
         return _response(command, "BAD_ARGUMENT", 2)
