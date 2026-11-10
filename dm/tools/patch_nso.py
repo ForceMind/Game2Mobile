@@ -21,6 +21,8 @@
 # The key page only stores "actual key number × 8" at the end of the data segment, and patch code fetches thread slots indirectly through the key page: the loader may use any key number.
 # Output: <name>.patched.bin (key page and patch area appended after the image at PATCH_OFF), <name>.fixups.tsv (layout and key page index header), <name>.gates.tsv, <name>.sites.tsv, <name>.cuts.tsv, <name>.obs.tsv
 import struct, re, sys, os
+if not __debug__:
+    raise SystemExit('NSO rewriter refuses optimized Python; safety assertions must remain enabled')
 from itertools import combinations
 import lz4.block
 from capstone import *
