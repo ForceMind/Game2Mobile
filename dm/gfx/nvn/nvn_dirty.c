@@ -34,7 +34,9 @@ enum { BUSY_WAIT_MS = 2000 };
 // 跟踪区间 = 各内存池（MemoryPoolInitialize 登记）。池销毁后复用 live=0 的槽，信号处理里无锁扫描。
 // Tracked ranges = the memory pools (registered by MemoryPoolInitialize). After a pool is destroyed its live=0 slot is reused; the signal handler scans without locks.
 #define MAX_RANGE 4096   // 原为 256：内存池多于它时超出的池不跟踪，里面的贴图每次取用都当成脏的重传（暗黑实测峰值见内存读数行的「内存池」；塞尔达约 300 个，踩过）。扫描只到已用的槽数，容量大不增加开销 | was 256: with more memory pools than that the excess pools are untracked and their textures are treated as dirty and re-uploaded on every use (for Diablo's measured peak see "memory pools" in the memory readout line; Zelda has about 300 and hit this). The scan only covers slots in use, so a larger capacity costs nothing
-typedef struct { uintptr_t base, end; _Atomic uint8_t *state; _Atomic uint64_t *gen; size_t cap; _Atomic int live; } range_t;
+// A new pool incarnation at the same guest address must invalidate cached upload stamps.
+// Keep epoch separate from per-page gen: on_fault relies on gen==0 before any protection.
+typedef struct { uintptr_t base, end; _Atomic uint8_t *state; _Atomic uint64_t *gen; size_t cap; _Atomic uint64_t epoch; _Atomic int live; } range_t;
 static range_t g_r[MAX_RANGE];
 static _Atomic int g_nr;
 static uintptr_t g_pg, g_shift;
@@ -134,6 +136,10 @@ void nvn_dirty_add_range(const void *mem, size_t size) {
         memset((void *)state, 0, np); memset((void *)gen, 0, np * sizeof *gen);
     }
     r->base = base; r->end = end; r->state = state; r->gen = gen;
+    // Resetting per-page gen to zero is required for fault ownership. The new
+    // pool epoch instead forces all textures stamped before this registration
+    // to upload again, even if the virtual address was reused unchanged.
+    atomic_store(&r->epoch, atomic_fetch_add(&g_now, 1) + 1);
     if (slot == n) atomic_store(&g_nr, n + 1);
     atomic_store_explicit(&r->live, 1, memory_order_release);
     pthread_mutex_unlock(&g_slot_mu);
@@ -172,6 +178,9 @@ int nvn_dirty_since(const void *addr, size_t len, uint64_t stamp) {
     if (!len) return 0;
     if (!nvn_dirty_tracked(addr, len)) return 1;   // 未跟踪时保守视为脏，宁可多传也不显示旧内容 | When untracked, conservatively treat as dirty: better to upload more than to show stale content
     range_t *r = find((uintptr_t)addr);
+    // Old texture upload stamps cannot be reused across pool destruction and
+    // re-registration, including a mapping which happens to keep its address.
+    if (atomic_load(&r->epoch) > stamp) return 1;
     uintptr_t a = (uintptr_t)addr, p = (a - r->base) >> g_shift, q = (a + len - 1 - r->base) >> g_shift;
     for (uintptr_t i = p; i <= q; i++) if (atomic_load(&r->gen[i]) > stamp) return 1;   // 上传前最后一次写的代号 ≤ 戳；之后的写必 > 戳 | The generation of the last write before upload is <= the stamp; any later write must be > the stamp
     return 0;

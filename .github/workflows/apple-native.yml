@@ -72,6 +72,18 @@ jobs:
             TMPDIR="$(pwd)/dm/host/tests/build" ./dm/host/tests/build/t_i18n "$lang"
           done
 
+      - name: Validate dirty-page pool epochs, real capacity overflow and pre-write race
+        shell: bash
+        run: |
+          set -euo pipefail
+          make --no-print-directory -C dm/gfx/tests t_dirty_slots t_dirty_race
+          python3 - <<'PY'
+          import subprocess
+          for test in ("t_dirty_slots", "t_dirty_race"):
+              print("Run asset-free native dirty tracker:", test, flush=True)
+              subprocess.run(["./dm/gfx/tests/" + test], check=True, timeout=30)
+          PY
+
       - name: Compile native Metal/Objective-C helpers
         shell: bash
         run: |
@@ -215,6 +227,18 @@ jobs:
         run: |
           set -euo pipefail
           CC=clang python3 dm/host/tests/test_boot_trace.py
+
+      - name: Validate dirty-page pool epochs, real capacity overflow and pre-write race
+        shell: bash
+        run: |
+          set -euo pipefail
+          make --no-print-directory -C dm/gfx/tests t_dirty_slots t_dirty_race
+          python3 - <<'PY'
+          import subprocess
+          for test in ("t_dirty_slots", "t_dirty_race"):
+              print("Run asset-free native dirty tracker:", test, flush=True)
+              subprocess.run(["./dm/gfx/tests/" + test], check=True, timeout=30)
+          PY
 
       - name: Compile legacy Metal M3 backend on actual macOS 15
         shell: bash

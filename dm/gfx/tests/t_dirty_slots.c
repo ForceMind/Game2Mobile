@@ -42,19 +42,41 @@ int main(void) {
     nvn_dirty_remove_range(reused);
     munmap(reused, 4096);
 
-    void *live[300];
-    for (int i = 0; i < 300; i++) {
+    // A reused pool at precisely the same address is a new resource identity.
+    // A cache entry from the previous incarnation must be invalidated before
+    // any guest write, while a stamp acquired after re-registration is current.
+    void *same = page_map();
+    nvn_dirty_add_range(same, 4096);
+    uint64_t old_stamp = nvn_dirty_now();
+    nvn_dirty_remove_range(same);
+    nvn_dirty_add_range(same, 4096);
+    EXPECT("同地址新建内存池必须使旧纹理戳失效", 1, nvn_dirty_since(same, 4096, old_stamp));
+    stamp = nvn_dirty_now();
+    EXPECT("重建后新戳且未写入不应反复判脏", 0, nvn_dirty_since(same, 4096, stamp));
+    nvn_dirty_remove_range(same);
+    munmap(same, 4096);
+
+    // Use the actual runtime capacity. The old hardcoded 300 test did not
+    // overflow after MAX_RANGE grew from 256 to 4096, so it gave false comfort.
+    int live_count = 0, peak = 0, cap = 0;
+    nvn_dirty_stat(&live_count, &peak, &cap);
+    if (cap < 1) { fprintf(stderr, "invalid dirty range capacity\n"); return 2; }
+    void **live = calloc((size_t)cap + 1, sizeof(*live));
+    if (!live) { perror("calloc"); return 2; }
+    for (int i = 0; i <= cap; i++) {
         live[i] = page_map();
         nvn_dirty_add_range(live[i], 4096);
     }
-    void *overflow = live[299];
-    nvn_dirty_protect(overflow, 4096);
+    void *overflow = live[cap];
+    EXPECT("超过实际容量的池必须未跟踪", 0, nvn_dirty_tracked(overflow, 4096));
     stamp = nvn_dirty_now();
+    nvn_dirty_protect(overflow, 4096);
     ((volatile uint8_t *)overflow)[0] = 2;
-    EXPECT("同时存活超过上限的池保守判脏", 1, nvn_dirty_since(overflow, 4096, stamp));
-    for (int i = 0; i < 300; i++) {
+    EXPECT("容量溢出的池保守判脏", 1, nvn_dirty_since(overflow, 4096, stamp));
+    for (int i = 0; i <= cap; i++) {
         nvn_dirty_remove_range(live[i]);
         munmap(live[i], 4096);
     }
+    free(live);
     return g_fail != 0;
 }
