@@ -10,6 +10,7 @@
 
 static _Atomic int ready, go, entered, release_hook, hooks_ready;
 static _Atomic int finished, before_hooks, errors, fault_calls, prep_calls;
+static void *g_pools[32];
 
 void test_fault_register(int (*fn)(void *, int, void *)) {
     (void)fn;
@@ -34,17 +35,18 @@ module_t *module_of(const void *p) { (void)p; return NULL; }
 void crash_install(void);
 
 static void *worker(void *arg) {
-    (void)arg;
+    size_t idx = (size_t)(uintptr_t)arg;
     atomic_fetch_add(&ready, 1);
     while (!atomic_load(&go)) usleep(100);
     size_t n = (size_t)getpagesize();
     void *p = mmap(NULL, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     if (p == MAP_FAILED) { atomic_fetch_add(&errors, 1); return NULL; }
+    g_pools[idx] = p;
     nvn_dirty_add_range(p, n);
     if (!atomic_load(&hooks_ready)) atomic_fetch_add(&before_hooks, 1);
     if (!nvn_dirty_tracked(p, n)) atomic_fetch_add(&errors, 1);
-    nvn_dirty_remove_range(p);
-    munmap(p, n);
+    // Keep all ranges alive until every registration has completed: this
+    // test isolates hook initialization, not concurrent pool destruction.
     atomic_fetch_add(&finished, 1);
     return NULL;
 }
@@ -53,7 +55,7 @@ int main(void) {
     enum { THREADS = 32 };
     pthread_t threads[THREADS];
     for (int i = 0; i < THREADS; i++) {
-        if (pthread_create(&threads[i], NULL, worker, NULL)) {
+        if (pthread_create(&threads[i], NULL, worker, (void *)(uintptr_t)i)) {
             fprintf(stderr, "pthread_create failure\n"); return 2;
         }
     }
@@ -66,6 +68,12 @@ int main(void) {
     int premature = atomic_load(&before_hooks);
     atomic_store(&release_hook, 1);
     for (int i = 0; i < THREADS; i++) pthread_join(threads[i], NULL);
+    for (int i = 0; i < THREADS; i++) {
+        if (g_pools[i]) {
+            nvn_dirty_remove_range(g_pools[i]);
+            munmap(g_pools[i], (size_t)getpagesize());
+        }
+    }
     int wrong = premature + atomic_load(&errors) +
                 (atomic_load(&finished) != THREADS) +
                 (atomic_load(&fault_calls) != 1) +
