@@ -3,3 +3,5 @@
 .iosdd_mac/
 .iosdd_*/
 .DS_Store
+# Python helpers import local modules during clean-source verification.
+__pycache__/

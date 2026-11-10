@@ -1,5 +1,7 @@
 # Game2Mobile · M1 私有资源构建与验收
 
+2026-11-09 更新：新增原生启动事件后，严格私有编译目标为 **92/92**。此前 **88/91** 是旧提交的公开无资源编译记录，不能直接用于新提交验收。新增 [启动诊断与构建身份手册](STARTUP_DIAGNOSTICS.zh-CN.md)；以下完整游戏构建和设备门槛仍然保留。
+
 > 状态：**已接入本地完整构建流程，但尚未完成真实游戏的全量链接和真机测试。** 本文不提供游戏镜像、解密密钥、商业资源或可玩的 IPA。不得将这些数据、生成的头文件、构建产物或原始日志上传到公开 GitHub。
 
 ## 目的与现状
@@ -12,7 +14,7 @@
 | `dm_bright_levels.inc` | `host/dm_bright.c` | `dm/tools/gen_bright_levels.py` |
 | `dm_vault_tab.h` | `host/dm_vault_ui.c` | `dm/ios/tools/gen_vault_table.py` |
 
-本阶段新增的私有构建模式 **不会伪造这些头文件**。它会在 Mac 上使用本机真实游戏数据生成、验证、临时复制，然后使用 Apple Clang 验证 91/91，最后尝试原有 `DmIOS` 完整构建。
+本阶段新增的私有构建模式 **不会伪造这些头文件**。它会在 Mac 上使用本机真实游戏数据生成、验证、临时复制，然后使用 Apple Clang 验证 92/92，最后尝试原有 `DmIOS` 完整构建。
 
 ## 准备环境
 
@@ -30,7 +32,7 @@
 python3 scripts/m1_local_pipeline.py plan
 
 # 本地私有端到端：检查工具/游戏版本、准备模块与着色器、
-# 从用户自己的 RomFS 生成三个头文件、严格编译 91/91、
+# 从用户自己的 RomFS 生成三个头文件、严格编译 92/92、
 # 最后构建并验证签名的 DmIOS.app（不自动安装或上传）
 python3 scripts/m1_local_pipeline.py all --profile metal4
 
@@ -86,7 +88,7 @@ python3 scripts/m1_shader_inventory.py cache \
 
 M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_ROOT`、`DM_ROMFS_SRC` 与该工作区下的 iOS Shader 缓存路径。共享配置文件中的旧路径不能让最终 App 使用另一套模块或资源。普通 `run.sh` 构建仍可使用原有自定义路径。
 
-每个阶段执行前后都核对 HEAD 和已跟踪文件。`setup.sh` 可能因本机 Xcode / spirv-cross 与仓内工具锁不同而更新 `dmsh_chain.lock`、`dmsh_chain.h` 或 `c1_full.tsv`；发生这种变化时，本轮会以 `source` 阶段失败退出，不会把修改后的构建记为旧 commit 的成功结果。先在本机检查 `git diff --stat` 与具体差异，只对经审查、允许入库的工具链元数据作提交（不得加入商业游戏资源、生成头文件、私有配置或签名），再从干净提交重新运行。若不能提交这些变化，应保留本机日志并调整工具链使其符合仓内锁，不能跳过源码核对。
+每个阶段执行前后都核对 HEAD、已跟踪文件的修改和未被忽略的未跟踪文件。`setup.sh` 可能因本机 Xcode / spirv-cross 与仓内工具锁不同而更新 `dmsh_chain.lock`、`dmsh_chain.h` 或 `c1_full.tsv`；发生这种变化时，本轮会以 `source` 阶段失败退出，不会把修改后的构建记为旧 commit 的成功结果。先在本机检查 `git diff --stat` 与具体差异，只对经审查、允许入库的工具链元数据作提交（不得加入商业游戏资源、生成头文件、私有配置或签名），再从干净提交重新运行。若不能提交这些变化，应保留本机日志并调整工具链使其符合仓内锁，不能跳过源码核对。
 
 原始日志在启动子进程**之前**便以 `0600` 权限创建，私有目录采用 `0700`，报告独占创建，禁止复用或通过符号链接指入 Git 工作树。脚本不执行任何 `git add`、GitHub API 上传或远程发布操作。日志可能包含本机路径或签名信息，**请勿直接贴到公开 Issue 或 PR**。
 
@@ -94,8 +96,8 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 
 **新增私有验收结果：** `m1-summary.json` 中记录 `shader_map_coverage_verified`、`shader_reflection_coverage_verified`、`shader_chain_verified`、`translated_shader_library_count`、`seeded_shader_count`，只包含布尔值与计数，不会记录商业游戏图像、着色器源码、哈希键列表或签名标识。每轮实际验证的着色器数量由用户自己合法生成的映射表决定，不凭空声称“已生成全部 6938 个”。
 
-- 若三个文件缺失、为空、包含明显的 CI 占位标记、是符号链接，脚本立即失败；**不会伪造游戏数据以凑齐 91/91**。
-- 必须严格编译 **91/91** 且无其他错误，才算该编译阶段通过。若失败，保留本机日志供定位；对外可分享的 JSON 不包含头文件原文、密钥、设备标识或原始编译报错。
+- 若三个文件缺失、为空、包含明显的 CI 占位标记、是符号链接，脚本立即失败；**不会伪造游戏数据以凑齐 92/92**。
+- 必须严格编译 **92/92** 且无其他错误，才算该编译阶段通过。若失败，保留本机日志供定位；对外可分享的 JSON 不包含头文件原文、密钥、设备标识或原始编译报错。
 - 在 `all` 模式中，最后调用原有 `dm/ios/run.sh build`，并使用 [`m1_game_bundle.py`](../scripts/m1_game_bundle.py) 对**真实游戏包**进行更严格验证：
   - `Info.plist` 的游戏标识、`DmIOS` 可执行文件和目标系统版本正确（Metal 4 对应 iOS 26.0，M3 对应 iOS 18.0）；
   - `otool -l` 证实真正嵌入了 **guest main/sdk** 的可执行 `__dmmainx0/x1`、`__dmsdkx0/x1` 和可写映像段 `__DMmainW`、`__DMsdkW`；逐个核对各 section 归属的 segment、非零长度和模块对应关系，不能用空壳、错放的 section 或诊断 App 冒充；
@@ -103,7 +105,7 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
   - 本机 Apple 签名验证成功，并具备 `embedded.mobileprovision`，同时为二进制生成 SHA-256 以便随后真机验证时对照。
 - M1 还会在 `run.sh` 读取 `local.env` **之后** 重新强制应用用户指定的 `metal4`/`m3` 构建模式，避免旧本地配置悄悄切换部署目标。
 - **即使上述所有步骤通过，也只能称为本地真实游戏 App 已构建/签名，不能自动宣称画面、声音、存档、运行性能或真机安装已验证。** 这些需单独记录实机冒烟测试。
-- 项目公开 CI 仍只使用受版本控制的源文件，不会取得这三个私有头文件；因此公开检查持续保持 **88/91 + 3 个受控资源阻塞**，这是符合设计的结果。
+- 项目公开 CI 只使用受版本控制的源文件，不会取得这三个私有头文件。历史基线为 **88/91 + 3 个受控资源阻塞**；加入 `boot_trace.c` 后有 92 个宿主编译单元，新的无资源预期为 **89/92 + 3 个受控资源阻塞**，是否达到以对应提交的 Apple CI 结果为准。
 
 参见 [完整编译覆盖率报告](PRODUCTION_COMPILE_COVERAGE.md) 和 [M1 Issue #1](https://github.com/ForceMind/Game2Mobile/issues/1)。
 
@@ -113,7 +115,7 @@ M1 构建在读取 `local.env` 后，还会重新应用流水线选定的 `DM_RO
 
 模块 fixups/gates、Shader 清单与缓存、下载清单，以及已存在的可选启动清单和参考存档，复制失败均会停止构建。APFS `cp -cR` 克隆失败时先清理该次复制的半成品，再以 `cp -R` 重试，普通复制失败则退出。资源缓存的完整性检查仍在复制前执行。正常 `run.sh build` 在 Xcode 成功后还必须通过 `codesign --verify --deep --strict`，才会输出构建完成；M1 流水线继续执行更严格的真实游戏包验收。
 
-`scripts/tests/test_ios_build_staging.py` 在隔离目录中执行真实 `run.sh`，用明确标记的普通文本文件和外部命令替身验证路径、复制与错误传播。它不生成游戏表头、不调用真实资源生成器、不编译或签名 App；Linux 与 Apple Bash 上的通过结果都不能计入 91/91 或游戏运行验收。
+`scripts/tests/test_ios_build_staging.py` 在隔离目录中执行真实 `run.sh`，用明确标记的普通文本文件和外部命令替身验证路径、复制与错误传播。它不生成游戏表头、不调用真实资源生成器、不编译或签名 App；Linux 与 Apple Bash 上的通过结果都不能计入 92/92 或游戏运行验收。
 
 ## 模块缓存完成性检查（2026-10-20）
 

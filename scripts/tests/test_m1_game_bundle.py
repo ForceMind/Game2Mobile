@@ -125,6 +125,19 @@ def valid_tools(args, description):
 
 
 class RealGameBundleChecksTests(unittest.TestCase):
+    def setUp(self):
+        # These older fixtures isolate Apple tools/resources. The actual
+        # binary parser and hash comparisons are exercised independently by
+        # test_build_identity.py using synthetic Mach-O bytes.
+        patcher = mock.patch("scripts.m1_game_bundle.verify_identity", return_value={
+            "build_identity_verified": True,
+            "build_identity_fingerprint": "f" * 64,
+            "embedded_guest_bytes_verified": True,
+            "bundled_shader_bytes_verified": True,
+        })
+        self.identity = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_version_decoder(self):
         self.assertEqual(ios_version("26.0"), (26, 0))
         self.assertEqual(ios_version("18"), (18, 0))
@@ -208,6 +221,17 @@ class RealGameBundleChecksTests(unittest.TestCase):
             self.assertFalse(outcome["real_device_installed"])
             self.assertFalse(outcome["gameplay_tested"])
             self.assertEqual(len(outcome["executable_sha256"]), 64)
+            self.identity.assert_called_once_with(app, "metal4", require_clean=True)
+            self.assertTrue(outcome["build_identity_verified"])
+
+    def test_identity_mismatch_prevents_bundle_acceptance(self):
+        from scripts.build_identity import IdentityError
+        with tempfile.TemporaryDirectory() as temporary:
+            app = make_mock_game_app(Path(temporary))
+            self.identity.side_effect = IdentityError("Embedded guest section hash mismatch")
+            with mock.patch("scripts.m1_game_bundle._apple_tool", side_effect=valid_tools):
+                with self.assertRaisesRegex(BundleValidationError, "section hash mismatch"):
+                    validate_real_game_bundle(app, "metal4")
 
     def test_wrong_os_profile_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -222,14 +246,16 @@ class RealGameBundleChecksTests(unittest.TestCase):
                 result = validate_real_game_bundle(app, "m3")
             self.assertTrue(result["actual_minimum_ios_version_verified"])
 
-    def test_missing_or_empty_resource_is_rejected(self):
+    def test_missing_resource_rejected_but_empty_gate_table_is_legal(self):
         with tempfile.TemporaryDirectory() as temporary:
             app = make_mock_game_app(Path(temporary))
             (app / "dm/sdk.gates.tsv").unlink()
             with self.assertRaisesRegex(BundleValidationError, "sdk.gates.tsv"):
                 require_runtime_resources(app)
             (app / "dm/sdk.gates.tsv").write_bytes(b"")
-            with self.assertRaisesRegex(BundleValidationError, "sdk.gates.tsv"):
+            self.assertTrue(require_runtime_resources(app)["shader_chain_verified"])
+            (app / "dm/sdk.fixups.tsv").write_bytes(b"")
+            with self.assertRaisesRegex(BundleValidationError, "sdk.fixups.tsv"):
                 require_runtime_resources(app)
 
     def test_symlinked_resources_are_rejected(self):

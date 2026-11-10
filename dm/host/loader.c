@@ -3,6 +3,7 @@
 // Multi-module loading (playing the role of Horizon's rtld): mapping, claiming thread slots, gate registration, cross-module relocation, take-over by name, segment permissions.
 // The code area (original text and patch area) is set to read-only+execute as soon as it is copied in, and from then on the loader only writes data: on iOS these two blocks must be embedded as is as signed code segments.
 #include "dm.h"
+#include "boot_trace.h"
 #include <TargetConditionals.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -361,22 +362,28 @@ void load_modules(const char *dir, const char **names, int n) {
     for (int i = 0; i < n; i++) {
         module_t *m = &g_mod[i];
         strlcpy(m->name, names[i], sizeof m->name);
+        dm_boot_event("module_load", "begin", "layout", m->name);
         read_layout(m, dir);
+        dm_boot_event("module_load", "ok", "layout", m->name);
     }
     create_keys();
     for (int i = 0; i < n; i++) {
         module_t *m = &g_mod[i];
+        dm_boot_event("module_load", "begin", "image", m->name);
         t = now_ns(); map_image(m, dir); tm += now_ns() - t;   // 返回时代码区已是只读+执行，此后装载器只写 data | On return the code area is already read-only+execute; from here on the loader only writes data
         if (!i) tsd_check();
         t = now_ns(); parse_dynamic(m); tp += now_ns() - t;
         t = now_ns(); register_gates(m, dir); tg += now_ns() - t;
         LOG("%s: base %p size %#zx", names[i], m->base, m->size);
         g_nmod++;
+        dm_boot_event("module_load", "ok", "image", m->name);
     }
+    dm_boot_event("relocation", "begin", "", NULL);
     force_init();
     t = now_ns(); for (int i = 0; i < g_nmod; i++) relocate(&g_mod[i]); tr = now_ns() - t;
     force_check();
     { void hlecount_seal(void); hlecount_seal(); }   // DM_HLECOUNT：重定位完成，计数桩页封成只读可执行 | DM_HLECOUNT: relocation done, seal the counting stub pages as read-only executable
+    dm_boot_event("relocation", "ok", "", NULL);
     if (getenv("DM_SYMCHECK")) LOG("DM_SYMCHECK：装载期共核 %lu 次符号查询，哈希与线性不一致 %lu", g_symchk_n, g_symchk_bad);
     if (g_flag.bootprof) LOG("① 细分：映射（读 + 拷 + 封页）%.1f ms、解析动态段 %.1f ms、门注册 %.1f ms、重定位 + 强制接管 %.1f ms，合计 %.1f ms",
                              tm / 1e6, tp / 1e6, tg / 1e6, tr / 1e6, (now_ns() - t0) / 1e6);
@@ -387,10 +394,14 @@ void load_modules(const char *dir, const char **names, int n) {
 // Plays the role of rtld's InitModules (rtld+0x830): call each module's DT_INIT in forward order of the load list.
 // The timing is decided by nn::init::Start: after nninitStartup and _init_libc2, before nnMain (the 4th argument callback of Start).
 void run_module_inits(void) {
+    dm_boot_event("module_init", "begin", "", NULL);
     for (int i = 0; i < g_nmod; i++) {
         module_t *m = &g_mod[i];
         if (!m->init) continue;
+        dm_boot_event("module_init", "begin", "", m->name);
         LOG("%s: DT_INIT +%#llx（init_array %llu 项）", m->name, m->init, m->init_arraysz / 8);
         ((void (*)(void))(m->base + m->init))();
+        dm_boot_event("module_init", "ok", "", m->name);
     }
+    dm_boot_event("module_init", "ok", "", NULL);
 }

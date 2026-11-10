@@ -36,6 +36,7 @@ jobs:
       - name: Offline tests (no Apple SDK or proprietary game files)
         run: |
           python3 dm/i18n/scan_literals.py
+          python3 dm/host/tests/test_boot_trace.py
           python3 dm/host/tests/native_write_scan.py --selftest dm/host
           python3 dm/host/tests/mode_scan.py dm
           python3 dm/ios/tests/test_input_pair_check.py

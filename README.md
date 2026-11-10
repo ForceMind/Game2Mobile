@@ -6,6 +6,8 @@
 
 > **For maintainers:** [M1 private owner-only real build](docs/M1_PRIVATE_BUILD.zh-CN.md) · [Build and release checklist](docs/BUILD_AND_RELEASE.md) · [Independent brand assets](assets/brand/README.md) · [Source audit](docs/REPO_AUDIT_2026-10-15.zh-CN.md).
 
+> **Startup diagnostics:** See the [startup log and build identity guide (Chinese)](docs/STARTUP_DIAGNOSTICS.zh-CN.md) to inspect one launch, verify its build inputs, and distinguish first-present evidence from game playability.
+
 
 **An open-source iOS / macOS compatibility layer for Diablo II: Resurrected with the Reign of the Warlock expansion.** It brings the Nintendo Switch release you bought, expansion included, to iPhone, iPad and Mac in full: the original game code runs natively, every control is rebuilt for touch, the frame rate holds at 60 fps, and you are in a game one second after the main menu. There is now a native macOS version as well (first version): on an Apple silicon Mac it starts on double-click and works with keyboard, mouse and gamepad.
 

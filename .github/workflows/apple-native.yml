@@ -59,6 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          CC=clang python3 dm/host/tests/test_boot_trace.py
           make -C dm/host/tests \
             build/t_i18n build/t_textbox build/t_rwlv \
             build/t_widget build/t_padmap build/t_unit_level
@@ -208,6 +209,12 @@ jobs:
           test "$(sw_vers -productVersion | cut -d. -f1)" = 15
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
+
+      - name: Compile and run portable boot trace regression on macOS 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          CC=clang python3 dm/host/tests/test_boot_trace.py
 
       - name: Compile legacy Metal M3 backend on actual macOS 15
         shell: bash
