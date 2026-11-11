@@ -405,6 +405,14 @@ def _run_pipeline(action: str, profile: str, workspace: Path,
 
 
 def run_pipeline(action: str, profile: str, workspace: Path, romfs: Path) -> dict:
+    # Direct callers need the same canonicalization as both CLIs. On Darwin,
+    # temporary /var paths alias /private/var; comparing one resolved path to
+    # one alias rejects an otherwise identical licensed-input directory.
+    try:
+        workspace = Path(workspace).expanduser().resolve()
+        romfs = Path(romfs).expanduser().resolve()
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise StageError("environment", "Invalid local workspace path", "workspace_path_invalid") from exc
     if action == "plan":
         return _run_pipeline(action, profile, workspace, romfs)
     checked_platform()

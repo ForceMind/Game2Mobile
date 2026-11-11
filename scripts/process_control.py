@@ -16,7 +16,28 @@ class ProcessFailure(RuntimeError):
         self.code = code
         super().__init__(code)
 
+@contextmanager
+def _cleanup_signals():
+    """Repeated Ctrl-C/TERM must not abandon children midway through cleanup."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 def _terminate_group(process: subprocess.Popen, grace: float = 2.0) -> None:
+    with _cleanup_signals():
+        _terminate_group_uninterruptible(process, grace)
+
+
+def _terminate_group_uninterruptible(process: subprocess.Popen, grace: float) -> None:
     def send(sig):
         try:
             if os.name == 'posix':
