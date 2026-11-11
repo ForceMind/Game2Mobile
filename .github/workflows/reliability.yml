@@ -44,3 +44,35 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts/tests -v
           python3 dm/host/tests/test_boot_trace.py
+      - name: Sanitized portable loader boundary checks
+        run: |
+          cc -std=c11 -O1 -g -fsanitize=address,undefined dm/host/tests/t_loader_validate.c -o "$RUNNER_TEMP/loader-checked"
+          "$RUNNER_TEMP/loader-checked"
+
+  native-reliability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate loader metadata with Apple Clang sanitizers
+        run: |
+          test "$(uname -m)" = arm64
+          clang -std=c11 -O1 -g -fsanitize=address,undefined dm/host/tests/t_loader_validate.c -o "$RUNNER_TEMP/loader-checked"
+          "$RUNNER_TEMP/loader-checked"
+      - name: Run actual Apple memory protection and concurrency regressions
+        run: |
+          make -C dm/gfx/tests t_dirty_slots t_dirty_race t_dirty_init t_dirty_failures
+          python3 - <<'PY'
+          import subprocess
+          for binary in ('t_dirty_slots', 't_dirty_race', 't_dirty_init', 't_dirty_failures'):
+              subprocess.run(['./dm/gfx/tests/' + binary], check=True, timeout=30)
+          PY
+      - name: Validate local process cleanup, evidence tools and CLI on Darwin
+        run: |
+          python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_m1_job_status scripts.tests.test_g2mctl -v
