@@ -48,6 +48,19 @@ public enum OperatorRequest: Equatable {
     }
 }
 
+/// Finder-launched apps frequently lack Homebrew in PATH. Supply the known
+/// build-tool directories before inherited entries without shell expansion.
+/// Empty inherited entries are dropped so PATH never silently searches cwd.
+public enum LocalToolPath {
+    public static func construct(inherited: String?) -> String {
+        let preferred = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin",
+                         "/usr/local/sbin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        let existing = (inherited ?? "").split(separator: ":", omittingEmptySubsequences: true).map(String.init)
+        var seen = Set<String>()
+        return (preferred + existing).filter { seen.insert($0).inserted }.joined(separator: ":")
+    }
+}
+
 public enum OperatorProtocolError: Error, Equatable {
     case invalidEncoding
     case invalidSchema

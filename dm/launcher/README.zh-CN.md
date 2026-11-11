@@ -21,7 +21,7 @@ open dm/launcher/MacOperator/out/Game2MobileOperator.app
 3. 若需要构建，在 **选择私有工作区** 中选择仓库外的 `$HOME/dm-work`，确定 `metal4 / m3` 与 `preflight / prepare / headers / verify / build / all`。点击 **确认并运行**后，系统再次弹出明确授权确认；只有确认后才以进程参数数组启动 `g2mctl.py build --execute-local ...`。默认阶段是 `preflight`，不是完整构建。
 4. **请求取消**向本机 Python 构建进程发送 SIGTERM；已安装的构建器负责当前阶段的子进程组清理和取消快照。收到取消结果以前不能将状态认定为成功。若使用者强制关闭整个 GUI，操作器本身不保证构建器已经停止；本机可按 M1 手册核对执行与快照。
 
-操作器从固定已知本机路径查找 Python 3（`/opt/homebrew/bin/python3`、`/usr/local/bin/python3`、`/usr/bin/python3`），通过 `Foundation.Process` **直接执行程序和参数数组**，不用 shell 拼接。stdout 限长并只解码 `game2mobile.operator.v1` 白名单字段，stderr 不会在 UI 回显；命令、运行标识、退出码必须与请求匹配。没有 HTTP 服务、远程控制、日志/资源上传、自动安装、自动启动游戏或读写签名凭据功能。用户需在本机检查私有的详细日志。
+操作器从固定已知本机路径查找 Python 3（`/opt/homebrew/bin/python3`、`/usr/local/bin/python3`、`/usr/bin/python3`），通过 `Foundation.Process` **直接执行程序和参数数组**，不用 shell 拼接；显式把 `/opt/homebrew/bin`、`/usr/local/bin` 等构建工具目录置于原有 `PATH` 前面，避免 Finder 启动时找不到 `xcodegen`、`spirv-cross`，并过滤可能导致当前目录搜索的空 PATH 项。stdout 限长并只解码 `game2mobile.operator.v1` 白名单字段，stderr 不会在 UI 回显；命令、运行标识、退出码必须与请求匹配。没有 HTTP 服务、远程控制、日志/资源上传、自动安装、自动启动游戏或读写签名凭据功能。用户需在本机检查私有的详细日志。
 
 **关键区分**：
 

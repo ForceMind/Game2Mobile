@@ -16,6 +16,15 @@ final class OperatorCoreTests: XCTestCase {
         XCTAssertEqual(OperatorRequest.buildLocal(workspace: "/private/my work", profile: .m3, stage: .all).arguments,
                        ["build", "--execute-local", "--workspace", "/private/my work", "--profile", "m3", "--stage", "all"])
     }
+    func testFinderToolPathPreservesInheritedAndPreventsCwdSearch() {
+        let path = LocalToolPath.construct(inherited: "/custom/bin::/opt/homebrew/bin:/another/bin")
+        XCTAssertTrue(path.hasPrefix("/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"))
+        XCTAssertTrue(path.contains(":/custom/bin:"))
+        XCTAssertTrue(path.hasSuffix(":/another/bin"))
+        XCTAssertFalse(path.contains("::"))
+        XCTAssertEqual(path.components(separatedBy: ":").filter { $0 == "/opt/homebrew/bin" }.count, 1)
+        XCTAssertTrue(LocalToolPath.construct(inherited: nil).contains(":/usr/bin:"))
+    }
     func testPathArgumentsRemainSingleTokens() {
         let file = "/private/name ; /game (a) ' $HOME"
         XCTAssertEqual(OperatorRequest.bootStatus(log: file).arguments, ["status", "--log", file])

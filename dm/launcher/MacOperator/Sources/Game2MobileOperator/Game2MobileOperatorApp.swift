@@ -30,6 +30,11 @@ final class OperatorState: ObservableObject {
         process.executableURL = URL(fileURLWithPath: python)
         process.arguments = [script.path] + request.arguments
         process.currentDirectoryURL = repository
+        // Finder has a restricted PATH; retain owner settings but put standard
+        // Apple Silicon build tools ahead of them. Arguments never use a shell.
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = LocalToolPath.construct(inherited: environment["PATH"])
+        process.environment = environment
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice  // Never show private traceback/log paths.
