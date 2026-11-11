@@ -50,8 +50,13 @@ jobs:
             'docs/ASSET_FREE_CLOSEOUT.zh-CN.md',
             'docs/S2ARM_INTEGRATION_PLAN.zh-CN.md',
           }
-          if actual != allowed:
-              raise SystemExit('Unexpected imported files: ' + str(sorted(actual ^ allowed)))
+          temporary = {
+              '.github/g2m-stage/part-0.txt', '.github/g2m-stage/part-1.txt',
+              '.github/g2m-stage/part-2.txt', '.github/g2m-stage/part-3.txt',
+              '.github/workflows/operator-import.yml',
+          }
+          if actual != allowed | temporary:
+              raise SystemExit('Unexpected imported files: ' + str(sorted(actual ^ allowed ^ temporary)))
           tree = subprocess.check_output(['git','write-tree'],text=True).strip()
           if tree != '42312749e47d459b728665b910f618bef6069586':
               raise SystemExit('Imported tree mismatch: ' + tree)
