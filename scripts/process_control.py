@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import threading
+import sys
 
 class ProcessFailure(RuntimeError):
     def __init__(self, code: str):
@@ -37,8 +38,43 @@ def _terminate_group(process: subprocess.Popen, grace: float = 2.0) -> None:
         _terminate_group_uninterruptible(process, grace)
 
 
+def _darwin_group_exited(pgid: int) -> bool:
+    """Confirm an EPERM was a zombie-only/vanished group, never ignore live denial.
+
+    XNU killpg1 excludes SZOMB members and may return EPERM when no live
+    recipient remains. Query only our stage's group, without command lines,
+    environment, usernames or unrelated processes. A failed/ambiguous query
+    is NOT evidence that cleanup succeeded.
+    """
+    if sys.platform != 'darwin' or type(pgid) is not int or pgid <= 1:
+        return False
+    try:
+        result = subprocess.run(
+            ['/bin/ps', '-x', '-g', str(pgid), '-o', 'pgid=,stat='],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}, timeout=1,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode not in (0, 1) or result.stderr.strip() or len(result.stdout) > 65536:
+        return False
+    rows = result.stdout.splitlines()
+    if not rows:
+        return True  # ps returns 1 when the selected group disappeared.
+    if result.returncode != 0:
+        return False
+    for row in rows:
+        fields = row.split()
+        if len(fields) != 2 or fields[0] != str(pgid) or not fields[1].startswith('Z'):
+            return False
+    return True
+
+
 def _terminate_group_uninterruptible(process: subprocess.Popen, grace: float) -> None:
+    cleanup_failed = False
+
     def send(sig):
+        nonlocal cleanup_failed
         try:
             if os.name == 'posix':
                 os.killpg(process.pid, sig)
@@ -46,14 +82,36 @@ def _terminate_group_uninterruptible(process: subprocess.Popen, grace: float) ->
                 process.terminate() if sig == signal.SIGTERM else process.kill()
         except ProcessLookupError:
             pass
+        except PermissionError:
+            # Do not blindly swallow EPERM: a still-live or uninspectable group
+            # is a cleanup failure. Darwin's zombie-only case is not one.
+            if not _darwin_group_exited(process.pid):
+                cleanup_failed = True
+        except OSError:
+            cleanup_failed = True
+
     send(signal.SIGTERM)
     try:
         process.wait(timeout=grace)
     except subprocess.TimeoutExpired:
         pass
-    # A child can outlive its parent, so always clean the session on failure.
+    except OSError:
+        cleanup_failed = True
+    # A child can outlive its parent, so still try the original private group.
     send(signal.SIGKILL)
-    process.wait(timeout=grace)
+    if cleanup_failed:
+        # A denied group operation must not prevent reaping our direct child.
+        # Popen.kill validates/reaps that child; never search for other PIDs.
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=grace)
+    except (OSError, subprocess.TimeoutExpired):
+        cleanup_failed = True
+    if cleanup_failed:
+        raise ProcessFailure('stage_cleanup_failed')
 
 def run_stage(command: list[str], *, cwd, env, output, timeout: float) -> None:
     if not math.isfinite(timeout) or timeout <= 0:
