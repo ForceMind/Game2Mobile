@@ -1,0 +1,61 @@
+name: Import pinned macOS operator patch (feature branch only)
+on:
+  push:
+    branches: [feat/mac-native-operator]
+permissions:
+  contents: write
+jobs:
+  stage:
+    if: github.event.head_commit.message == 'Stage pinned macOS operator source patch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 2
+      - name: Apply hash-verified public source patch and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma
+          chunks = [Path(f'.github/g2m-stage/part-{n}.txt').read_text(encoding='ascii') for n in range(4)]
+          encoded = ''.join(chunks)
+          if len(encoded) != 14380:
+              raise SystemExit('Pinned payload length mismatch')
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          if hashlib.sha256(patch).hexdigest() != '3ae8b06b788c464da2ae96b3eaedba04d9b8dd728cc926a03b50464150237bd3':
+              raise SystemExit('Pinned patch hash mismatch')
+          Path('.github/g2m-stage/operator.patch').write_bytes(patch)
+          PY
+          git apply --check .github/g2m-stage/operator.patch
+          git apply .github/g2m-stage/operator.patch
+          rm -rf .github/g2m-stage
+          rm .github/workflows/operator-import.yml
+          git add -A
+          python3 - <<'PY'
+          import subprocess
+          actual = set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          allowed = {
+            '.github/workflows/reliability.yml',
+            'dm/launcher/MacOperator/.gitignore',
+            'dm/launcher/MacOperator/Info.plist',
+            'dm/launcher/MacOperator/Package.swift',
+            'dm/launcher/MacOperator/Sources/Game2MobileOperator/Game2MobileOperatorApp.swift',
+            'dm/launcher/MacOperator/Sources/OperatorCore/OperatorCore.swift',
+            'dm/launcher/MacOperator/Tests/OperatorCoreTests/OperatorCoreTests.swift',
+            'dm/launcher/README.zh-CN.md', 'dm/launcher/build_mac_operator.sh',
+            'docs/ASSET_FREE_CLOSEOUT.zh-CN.md',
+            'docs/S2ARM_INTEGRATION_PLAN.zh-CN.md',
+          }
+          if actual != allowed:
+              raise SystemExit('Unexpected imported files: ' + str(sorted(actual ^ allowed)))
+          tree = subprocess.check_output(['git','write-tree'],text=True).strip()
+          if tree != '42312749e47d459b728665b910f618bef6069586':
+              raise SystemExit('Imported tree mismatch: ' + tree)
+          print('Verified public source tree:', tree)
+          PY
+          git -c user.name='Game2Mobile Import Bot' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Add native macOS SwiftUI engineering operator and Apple CI tests'
+          git push origin HEAD:refs/heads/feat/mac-native-operator
