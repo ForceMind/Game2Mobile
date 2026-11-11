@@ -8,10 +8,12 @@
 
 > **Startup diagnostics:** See the [startup log and build identity guide (Chinese)](docs/STARTUP_DIAGNOSTICS.zh-CN.md) to inspect one launch, verify its build inputs, and distinguish first-present evidence from game playability.
 
+> **Local engineering tools:** [Operator CLI](docs/AI_OPERATOR_CLI.zh-CN.md) · [Asset-free delivery and remaining work](docs/ASSET_FREE_CLOSEOUT.zh-CN.md). Source checks, signed builds, first-present observations and device playability are separate results.
 
-**An open-source iOS / macOS compatibility layer for Diablo II: Resurrected with the Reign of the Warlock expansion.** It brings the Nintendo Switch release you bought, expansion included, to iPhone, iPad and Mac in full: the original game code runs natively, every control is rebuilt for touch, the frame rate holds at 60 fps, and you are in a game one second after the main menu. There is now a native macOS version as well (first version): on an Apple silicon Mac it starts on double-click and works with keyboard, mouse and gamepad.
 
-This is not a tech demo that "sort of runs". It is a mobile version polished for daily play, from your first character all the way through the endgame.
+**An open-source iOS / macOS compatibility layer targeting Diablo II: Resurrected.** Game2Mobile continues the imported ARM64-native, platform-service and Metal adaptation code. Users supply their own legally obtained, version-matched game files. Game2Mobile has not yet independently validated a complete signed game build or device gameplay.
+
+The feature descriptions, images and performance figures below are retained upstream reference documentation, not Game2Mobile acceptance results or release guarantees.
 
 Platforms: iPhone / iPad (iOS 26 and later; iOS 18 – 25 with the older-API build) · Mac (Apple silicon, macOS 26 or later; macOS 15 – 25 with the older-API build) · Game version: Switch release with Reign of the Warlock, 1.0.34.0 (corresponds to PC version 3.3.94012) · English / 中文 · License: MIT · **Bring your own game files**
 

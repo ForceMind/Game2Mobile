@@ -4,6 +4,7 @@
 // The code area (original text and patch area) is set to read-only+execute as soon as it is copied in, and from then on the loader only writes data: on iOS these two blocks must be embedded as is as signed code segments.
 #include "dm.h"
 #include "boot_trace.h"
+#include "loader_validate.h"
 #include <TargetConditionals.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -52,17 +53,11 @@ static void tsd_check(void) {
 
 static void build_symhash(module_t *m);
 static void parse_dynamic(module_t *m) {
-    uint32_t mod0 = *(uint32_t *)(m->base + 4);
-    if (memcmp(m->base + mod0, "MOD0", 4)) die("%s: no MOD0", m->name);
-    m->dyn = (const Elf64_Dyn *)(m->base + mod0 + *(int32_t *)(m->base + mod0 + 4));
-    for (const Elf64_Dyn *d = m->dyn; d->d_tag; d++) switch (d->d_tag) {
-        case DT_SYMTAB: m->symtab = (const Elf64_Sym *)(m->base + d->d_un.d_ptr); break;
-        case DT_STRTAB: m->strtab = (const char *)(m->base + d->d_un.d_ptr); break;
-        case DT_INIT: m->init = d->d_un.d_ptr; break;
-        case DT_INIT_ARRAY: m->init_array = d->d_un.d_ptr; break;
-        case DT_INIT_ARRAYSZ: m->init_arraysz = d->d_un.d_val; break;
+    const char *error = g2m_dynamic_validate(m);
+    if (error) {
+        dm_boot_event("module_load", "error", error, m->name);
+        die("%s: invalid module metadata (%s)", m->name, error);
     }
-    m->nsym = (unsigned)(((const uint8_t *)m->strtab - (const uint8_t *)m->symtab) / sizeof(Elf64_Sym));
     build_symhash(m);
 }
 
@@ -81,6 +76,7 @@ static uint32_t sym_hash(const char *s) { uint32_t h = 2166136261u; while (*s) h
 static void build_symhash(module_t *m) {
     unsigned cap = 16; while (cap < m->nsym * 2) cap <<= 1;
     m->symh = calloc(cap, sizeof *m->symh); m->symh_mask = cap - 1;
+    if (!m->symh) die("%s: symbol table allocation failed", m->name);
     for (unsigned i = 1; i < m->nsym; i++) {
         const Elf64_Sym *s = &m->symtab[i]; if (!s->st_shndx) continue;
         const char *nm = m->strtab + s->st_name;
@@ -154,30 +150,26 @@ static void read_layout(module_t *m, const char *dir) {
     char path[1024]; snprintf(path, sizeof path, "%s/%s.fixups.tsv", dir, m->name);
     FILE *f = fopen(path, "r");
     if (!f) die("open %s", path);
-    static const char *kn[8] = {"K18", "KTLS", "KTLR", "KGATE", "KRES0", "KRES1", "KASPECT", "KASPECTUI"};
-    char line[256], key[32]; unsigned long v; unsigned seen = 0;
+    char line[256]; unsigned seen = 0;
     while (fgets(line, sizeof line, f)) {
-        if (sscanf(line, "# %31s %lx", key, &v) != 2) die("%s: 产物是旧改写器出的，换成当前代号（dm/PRODUCT）的产物", path);
-        if (!strcmp(key, "PATCH_OFF")) m->patch_off = v;
-        else if (!strcmp(key, "KEY_PAGE_OFF")) m->key_page_off = v;
-        else if (!strcmp(key, "KEY_PAGE_SIZE")) m->key_page_size = v;
-        else if (!strcmp(key, "TEXT_END")) m->text_end = v;
-        else if (!strcmp(key, "RO_OFF")) m->ro_off = v;
-        else if (!strcmp(key, "DATA_OFF")) m->data_off = v;
-        else for (int k = 0; k < 8; k++) {
-            size_t n = strlen(kn[k]);
-            if (!strncmp(key, "KEY_", 4) && !strncmp(key + 4, kn[k], n) && !strcmp(key + 4 + n, "_IDX")) {
-                m->key_idx[k] = (unsigned)strtoul(strrchr(line, '\t') + 1, 0, 10); seen |= 1u << k;
-            }
+        const char *error = strchr(line, '\n') || feof(f) ? g2m_layout_line(m, line, &seen) : "layout_line_limit";
+        if (error) {
+            fclose(f);
+            dm_boot_event("module_load", "error", error, m->name);
+            die("%s: invalid layout (%s)", m->name, error);
         }
     }
+    if (ferror(f)) { fclose(f); die("%s: layout read failed", m->name); }
     fclose(f);
-    if (!m->patch_off || m->key_page_off % 0x4000 || m->key_page_size != 0x4000 || seen != 0xff)
-        die("%s: 产物是旧改写器出的，换成当前代号（dm/PRODUCT）的产物", path);
+    const char *error = g2m_layout_validate(m, seen);
+    if (error) {
+        dm_boot_event("module_load", "error", error, m->name);
+        die("%s: invalid layout (%s)", m->name, error);
+    }
 }
 
 static void install_key_page(module_t *m) {
-    if (m->key_page_off + m->key_page_size > m->size) die("%s: 键页越界", m->name);
+    if (!g2m_span(m->size, m->key_page_off, m->key_page_size)) die("%s: 键页越界", m->name);
     uint64_t *page = (uint64_t *)(m->base + m->key_page_off);
     memset(page, 0, m->key_page_size);
     for (unsigned i = 0; i < 4; i++) page[m->key_idx[i]] = (uint64_t)key_value(i) * 8;
@@ -191,12 +183,20 @@ static void register_gates(module_t *m, const char *dir) {
     char path[1024], line[256]; snprintf(path, sizeof path, "%s/%s.gates.tsv", dir, m->name);
     FILE *f = fopen(path, "r");
     int ng = 0;
-    if (f) {
-        unsigned long ret, orig; char kind[16]; int arg;
-        while (fgets(line, sizeof line, f))
-            if (sscanf(line, "%lx %15s %d %lx", &ret, kind, &arg, &orig) == 4) { gate_register((uint64_t)m->base + ret, kind, arg, orig); ng++; }
-        fclose(f);
+    if (!f) die("%s: gate table missing", m->name);
+    uint64_t ret, orig; char kind[16]; int arg;
+    while (fgets(line, sizeof line, f)) {
+        const char *error = strchr(line, '\n') || feof(f) ?
+            g2m_gate_line(m, line, &ret, kind, &arg, &orig) : "gate_line_limit";
+        if (error) {
+            fclose(f);
+            dm_boot_event("module_load", "error", error, m->name);
+            die("%s: invalid gate table (%s)", m->name, error);
+        }
+        gate_register((uint64_t)m->base + ret, kind, arg, orig); ng++;
     }
+    if (ferror(f)) { fclose(f); die("%s: gate table read failed", m->name); }
+    fclose(f);
     LOG("%s: gates %d patch_off %#llx keys %lu/%lu/%lu/%lu", m->name, ng, m->patch_off, g_key18, g_keytls, g_keytlr, g_keygate);
 }
 
@@ -317,6 +317,8 @@ static void map_image(module_t *m, const char *dir) {
     if (!x0 || !w || !x1) die("内嵌节 %s / %s / %s 缺失", sx0, dm, sx1);
     if (z0 + zw != m->patch_off || (z0 & 0x3FFF) || (zw & 0x3FFF) || (z1 & 0x3FFF) || ((uintptr_t)x0 & 0x3FFF) || ((uintptr_t)w & 0x3FFF) || ((uintptr_t)x1 & 0x3FFF))
         die("%s 内嵌节布局不符（x0 %#lx w %#lx x1 %#lx，PATCH_OFF %#llx）", m->name, z0, zw, z1, (unsigned long long)m->patch_off);
+    if (!z1 || !g2m_span(SIZE_MAX, m->patch_off, z1) ||
+        z0 != ((m->text_end + 0x3fff) & ~UINT64_C(0x3fff))) die("%s embedded size mismatch", m->name);
     m->size = m->patch_off + z1;
     vm_address_t base = 0;
     if (vm_allocate(mach_task_self(), &base, m->size, VM_FLAGS_ANYWHERE) != KERN_SUCCESS) die("%s 保留 %#zx 字节地址失败", m->name, m->size);
@@ -329,8 +331,11 @@ static void map_image(module_t *m, const char *dir) {
 static uint8_t *slurp(const char *path, size_t *n) {
     int fd = open(path, O_RDONLY);
     if (fd < 0) die("open %s", path);
-    struct stat st; fstat(fd, &st);
-    uint8_t *p = malloc(st.st_size);
+    struct stat st;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+        (uint64_t)st.st_size > SIZE_MAX - 0x3fff) die("invalid module file size");
+    uint8_t *p = malloc((size_t)st.st_size);
+    if (!p) die("module allocation failed");
     if (read(fd, p, st.st_size) != st.st_size) die("read %s", path);
     close(fd); *n = st.st_size; return p;
 }
@@ -342,6 +347,7 @@ static uint8_t *slurp(const char *path, size_t *n) {
 static void map_image(module_t *m, const char *dir) {
     char path[1024]; snprintf(path, sizeof path, "%s/%s.patched.bin", dir, m->name);
     size_t sz; uint8_t *raw = slurp(path, &sz);
+    if (sz <= m->patch_off) die("%s: truncated module patch", m->name);
     m->size = (sz + 0x3FFF) & ~0x3FFFull;
     m->base = mmap(NULL, m->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     if (m->base == MAP_FAILED) die("%s mmap", m->name);
@@ -358,6 +364,12 @@ void load_modules(const char *dir, const char **names, int n) {
     // DM_BOOTPROF：① 宿主装载细分（毫秒），定 ③ 预重定位 / mmap 的上限
     // Map everything and parse the symbol tables first, then relocate all at once (cross-module symbols must all be in place first)
     // DM_BOOTPROF: breakdown of ① host loading (milliseconds), to set the upper bound for ③ pre-relocation / mmap
+    if (n <= 0 || n > MAX_MOD || g_nmod || !dir || !names) die("invalid module list");
+    for (int i = 0; i < n; i++) {
+        if (!names[i] || !*names[i] || strlen(names[i]) >= sizeof g_mod[0].name ||
+            strspn(names[i], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != strlen(names[i]))
+            die("invalid module name");
+    }
     uint64_t t0 = now_ns(), tm = 0, tp = 0, tg = 0, tr = 0, t;
     for (int i = 0; i < n; i++) {
         module_t *m = &g_mod[i];

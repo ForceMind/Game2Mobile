@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, JSON-only Game2Mobile operator CLI.
+"""Local JSON Game2Mobile operator CLI; writes require explicit commands.
 
 Examples (run from the repository root):
     python3 scripts/g2mctl.py capabilities
@@ -7,7 +7,7 @@ Examples (run from the repository root):
     python3 scripts/g2mctl.py next --log /private/boot.txt --run-id <run_id>
     python3 scripts/g2mctl.py status --log /private/boot.txt --app /private/DmIOS.app --profile metal4
 
-No network listener, launch/install, credential access or filesystem writes.
+No network listener, launch/install or uploads. Explicit local build/export only.
 An observed first present is not evidence of a playable game.
 """
 from __future__ import annotations
@@ -30,6 +30,9 @@ else:
 SCHEMA = "game2mobile.operator.v1"
 CAPABILITIES = {"capabilities": True, "status": True, "next": True,
                 "diagnose": True, "job-status": True, "build": False, "install": False,
+                "build-plan": True, "build-local-explicit": True,
+                "bundle": True, "inspect-bundle": True,
+                "acceptance-template": True, "acceptance-check": True,
                 "launch": False, "http_control": False}
 ERRORS = {
     "first_present_observed": "FIRST_PRESENT_OBSERVED",
@@ -68,7 +71,26 @@ def parser() -> JsonArgumentParser:
     job = subs.add_parser("job-status", help="Read an explicit private M1 status snapshot")
     job.add_argument("--status-file", type=Path, required=True)
     # An explicit unsupported command must never silently execute a build.
-    subs.add_parser("build", help="Not yet implemented; fails safely")
+    build = subs.add_parser("build", help="Requires --execute-local and explicit workspace")
+    build.add_argument("--execute-local", action="store_true")
+    build.add_argument("--workspace", type=Path)
+    build.add_argument("--profile", choices=("metal4", "m3"), default="metal4")
+    build.add_argument("--stage", choices=("preflight", "prepare", "headers", "verify", "build", "all"), default="all")
+    subs.add_parser("build-plan", help="Read-only shared build stage plan")
+    bundle = subs.add_parser("bundle", help="Explicit summary-only private ZIP export")
+    bundle.add_argument("--log", type=Path)
+    bundle.add_argument("--job-status-file", type=Path)
+    bundle.add_argument("--run-id")
+    bundle.add_argument("--output", type=Path, required=True)
+    inspect = subs.add_parser("inspect-bundle", help="Check ZIP integrity, not device authenticity")
+    inspect.add_argument("path", type=Path)
+    for name in ("acceptance-template", "acceptance-check"):
+        accept = subs.add_parser(name)
+        accept.add_argument("--app", type=Path, required=True)
+        accept.add_argument("--profile", choices=("metal4", "m3"), required=True)
+        accept.add_argument("--log", type=Path, required=True)
+        if name == "acceptance-check":
+            accept.add_argument("--record", type=Path, required=True)
     return result
 
 
@@ -95,26 +117,81 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
     if command == "capabilities":
         return _response(command, "OK", 0, operations=CAPABILITIES,
                          playability="unverified")
-    if command == "build":
-        return _response(command, "NOT_SUPPORTED", 3,
-                         next_action="Use the existing local M1 pipeline explicitly; no build was started.")
+    if command in ("build", "build-plan"):
+        if command == "build" and not args.execute_local:
+            return _response(command, "NOT_SUPPORTED", 3,
+                             next_action="Explicit --execute-local and --workspace are required; no build started.")
+        if __package__:
+            from .m1_local_pipeline import run_pipeline, build_plan, StageError
+            from .process_control import cancellation_signals
+        else:
+            from m1_local_pipeline import run_pipeline, build_plan, StageError
+            from process_control import cancellation_signals
+        if command == "build-plan":
+            return _response(command, "OK", 0, stages=[
+                {"stage": stage, "description": description} for stage, description in build_plan("metal4")],
+                requirements=["Apple Silicon Mac", "version-matched lawful game inputs", "local signing"],
+                playability="unverified")
+        if args.workspace is None:
+            return _response(command, "BAD_ARGUMENT", 2)
+        from contextlib import redirect_stdout
+        import io
+        workspace = args.workspace  # run_pipeline owns guarded canonicalization
+        romfs = workspace / "data/switch/3.3.94012/Update/RomFS"
+        try:
+            with cancellation_signals(), redirect_stdout(io.StringIO()):
+                result = run_pipeline(args.stage, args.profile, workspace, romfs)
+        except StageError as error:
+            return _response(command, "M1_BUILD_CANCELLED" if error.code == "stage_cancelled" else "M1_BUILD_FAILED",
+                             130 if error.code == "stage_cancelled" else 1,
+                             scope="explicit-local-build", stage=error.stage, error_code=error.code,
+                             playability="unverified")
+        return _response(command, "M1_STAGES_PASSED" if result["result"] == "passed" else "M1_STAGE_PARTIAL", 0,
+                         scope="explicit-local-build", build=result, playability="unverified")
+    if command in ("bundle", "inspect-bundle", "acceptance-template", "acceptance-check"):
+        if __package__:
+            from . import evidence_tools as evidence
+        else:
+            import evidence_tools as evidence
+        try:
+            if command == "bundle":
+                result = evidence.export_bundle(args.output, log=args.log,
+                         status=args.job_status_file, run_id=args.run_id)
+                return _response(command, "DIAGNOSTIC_EXPORTED", 0,
+                                 scope="explicit-local-export", **result)
+            if command == "inspect-bundle":
+                result = evidence.inspect_bundle(args.path)
+                return _response(command, "DIAGNOSTIC_INTEGRITY_CHECKED", 0, **result)
+            if command == "acceptance-template":
+                return _response(command, "ACCEPTANCE_TEMPLATE", 0,
+                    template=evidence.acceptance_template(args.app, args.profile, args.log),
+                    playability="unverified")
+            result = evidence.check_acceptance(args.record, args.app, args.profile, args.log)
+            return _response(command, "ACCEPTANCE_RECORD_COMPLETE" if result["record_complete"] else "ACCEPTANCE_INCOMPLETE",
+                             result["exit_code"], acceptance=result, playability="requires_manual_review")
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            return _response(command, "LOCAL_EVIDENCE_INVALID", 2, playability="unverified")
     if command == "job-status":
         try:
             job = read_job_status(args.status_file)
-        except (JobStatusError, OSError, ValueError, UnicodeError, RecursionError):
+        except (JobStatusError, OSError, ValueError, UnicodeError, RuntimeError):
             return _response(command, "M1_STATUS_INVALID", 2, playability="unverified")
         code, exit_code = {
             "running": ("M1_JOB_RUNNING", 1),
             "failed": ("M1_JOB_FAILED", 1),
+            "cancelled": ("M1_JOB_CANCELLED", 130),
             "partial": ("M1_JOB_PARTIAL", 1),
             "passed": ("M1_STAGES_PASSED", 0),
         }[job["state"]]
-        return _response(command, code, exit_code, job=job, playability="unverified")
+        return _response(command, code, exit_code, job=job, job_liveness="not_checked", playability="unverified")
     if command == "status" and ((args.app is None) != (args.profile is None) or
                                  (args.require_clean and args.app is None)):
         return _response(command, "BAD_ARGUMENT", 2)
-    report = analyze_log(_log_path(args.log, os.environ if environ is None else environ),
-                         args.run_id)
+    try:
+        report = analyze_log(_log_path(args.log, os.environ if environ is None else environ),
+                             args.run_id)
+    except (OSError, ValueError, RuntimeError):
+        return _response(command, "BOOT_INPUT_INVALID", 2, playability="unverified")
     exit_code = report["exit_code"]
     code = ERRORS.get(report["result"], "BOOT_UNCLASSIFIED")
     if command == "diagnose":
@@ -133,7 +210,7 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
             identity = {"status": "verified", "verified": True, "profile": args.profile,
                         **verify_identity(args.app, args.profile, repo=ROOT,
                                           require_clean=args.require_clean)}
-        except (IdentityError, OSError, ValueError, UnicodeError, RecursionError):
+        except (IdentityError, OSError, ValueError, UnicodeError, RuntimeError):
             # Never print an exception: OS errors may contain private paths.
             identity = {"status": "invalid", "verified": False, "profile": args.profile}
             code, exit_code = "BUILD_IDENTITY_INVALID", 2

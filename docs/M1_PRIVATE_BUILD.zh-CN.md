@@ -157,3 +157,9 @@ python3 scripts/g2mctl.py job-status --status-file \
 Every owner-only execution uses a unique private `run-*/` directory with a fresh Xcode DerivedData path, fail-closed App validation and `0600` log/summary files. It clears inherited `DM_GEN_ONLY` and other stale-output flags; individual stages are labeled `partial`, never end-to-end success. Do not paste raw local build logs into public issues.
 
 Run `python3 scripts/m1_local_pipeline.py plan` for a safe preview. On an Apple Silicon Mac with your legally obtained, version-matched game files and Apple signing configured locally, run `python3 scripts/m1_local_pipeline.py all --profile metal4`. This regenerates the three **private** RomFS-derived headers, verifies the real 91-source ARM64 compile with no synthetic substitutes, and attempts a locally signed real `DmIOS.app` build. No commercial game files, keys, logs or App bundles are uploaded to GitHub. A successful signed build is **not** proof of game launch or real-device playability.
+
+## 构建过程控制与诊断导出（2026-11-10）
+
+M1 现在对同一 Git 公共目录加独占构建锁，超时/取消时清理本阶段的子进程组，并记录失败或取消终态。`m1-job-status.json` 使用 v2；读取器仍支持已有 v1。单阶段超时可用 `DM_M1_STAGE_TIMEOUT_SECONDS` 配置（1–86400，默认 7200）。Ctrl-C/SIGTERM 可正常收尾；SIGKILL/断电不可捕获，残留 running 快照不证明进程仍存活，必须重新建立构建证据。
+
+新增显式 `g2mctl build --execute-local --workspace ...`，复用本页同一个流水线，不自动安装。`bundle` 只输出摘要 ZIP，`acceptance-template/acceptance-check` 核对真实 App、同次日志和人工设备记录，不证明实际游戏可玩。完整接口与隐私边界见 [本机操作接口](AI_OPERATOR_CLI.zh-CN.md)。

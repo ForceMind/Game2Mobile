@@ -1,40 +1,86 @@
-# Game2Mobile 只读 AI 操作入口（S2-09 第一阶段）
+# Game2Mobile 本机操作、诊断与验收接口
 
-本页介绍与现有启动诊断、构建身份核验共用真实判断逻辑的**本机只读 JSON CLI**。代码位于 [scripts/g2mctl.py](../scripts/g2mctl.py)，不需要私有游戏资源即可询问当前日志状态。它并不是启动器、后台 Agent、HTTP 监听器或已经实现的 AI 自主构建服务。
+所有命令通过 `python3 scripts/g2mctl.py` 调用，普通响应为单行 JSON。没有 HTTP 服务、远程端口、自动安装、自动启动、凭据查询或上传。普通状态命令只读；构建必须显式指定 `--execute-local` 和工作区，导出必须显式指定目标路径。
 
-## 使用
-
-在仓库根目录运行：
+## 1. 只读查询
 
 ```bash
 python3 scripts/g2mctl.py capabilities
+python3 scripts/g2mctl.py build-plan
 python3 scripts/g2mctl.py status --log "/private/local/boot.txt"
-python3 scripts/g2mctl.py next --log "/private/local/boot.txt" --run-id 0123456789abcdef0123456789abcdef
+python3 scripts/g2mctl.py next --log "/private/local/boot.txt"
 python3 scripts/g2mctl.py diagnose --log "/private/local/boot.txt"
-# 显式读取本机 M1 流水线在私有证据目录内生成的原子状态快照
-python3 scripts/g2mctl.py job-status --status-file "/private/local/m1-private-evidence/<commit>/<profile>/run-xxx/m1-job-status.json"
-# 只有显式指定真实 App 与目标配置，才开始严格验证内嵌游戏/着色器字节：
-python3 scripts/g2mctl.py status --app "/private/local/DmIOS.app" --profile metal4 --require-clean
+python3 scripts/g2mctl.py job-status --status-file "/private/local/run-xxx/m1-job-status.json"
+python3 scripts/g2mctl.py status --log "/private/local/boot.txt" \
+  --app "/private/local/DmIOS.app" --profile metal4 --require-clean
 ```
 
-没有 `--log` 时使用 `$DM_ROOT/run/ios/out/boot.txt`，如未设置 `DM_ROOT` 则使用 `~/dm-work/run/ios/out/boot.txt`。状态、诊断和下一步都只读取指定日志；`--run-id` 始终传给现有诊断器，不能混合不同启动的证据。缺失的日志返回错误码，不会推断游戏正在运行。命令不会隐式构建、安装、启动或访问网络。
+`status/next/diagnose` 可用 `--run-id` 选定 32 位小写十六进制运行标识；不指定日志时沿用 `$DM_ROOT/run/ios/out/boot.txt`，默认工作区为 `~/dm-work`。不同运行不会互相补足证据。`status --app` 和 `--profile` 必须成对提供，调用现有真实字节核验器，而不只检查清单名称。没有指定 App 时，身份状态是 `not_checked`。
 
-仅 `status` 接受 `--app`、`--profile {metal4,m3}` 和 `--require-clean`。`--app` 与 `--profile` 必须同时提供。它调用 [build_identity.py](../scripts/build_identity.py) 的真实 `verify_identity`，核对**最终 App 内嵌的模块、运行表和 shader 字节**，而不仅检查清单本身。未指定时 `identity.status=not_checked`；指定后核验失败时为 `invalid`，不能推断任意其他 App 通过。
+日志和状态输入必须是普通文件；符号链接、管道、设备文件及超限输入被拒绝，管道不会使工具无限等待。状态文件版本为 `game2mobile.m1-job-status.v2`，仍读取已有 v1 文件。v2 增加 `cancelled` 终态，并检查日期和构建/签名/步骤标记的一致性。
 
-## 协议与边界
+`job-status` 只读取显式路径，不遍历私有证据目录。返回的是**最后保存的状态快照**，不是进程心跳；`job_liveness=not_checked`。关机或 `SIGKILL` 后留下的 `running` 不能解释为任务仍在运行，更不能解释为成功。
 
-每条响应是单行 JSON，顶层固定使用 `schema: game2mobile.operator.v1`、`command`、`code`、`ok`、`exit_code`、`scope: local-read-only`。成功的 `capabilities` 返回当前支持的操作；`status` 具有 `observation`、`identity` 和固定的 `playability: unverified`；`next` 返回一次启动对应的 `next_action`；`diagnose` 包含现有完整启动分析报告（仍为本地、脱敏后才能分享）。输出不包含所传日志/App 路径，也不回显底层文件读错时可能包含私有路径的异常。
+## 2. 显式执行本机构建
 
-退出码与 `boot_diagnostics.py` 对齐：`0` 表示当次启动首帧观测证据有效、无结构化错误（或 `capabilities` 查询成功），**绝不代表游戏可玩**；`1` 表示启动证据不足或运行错误；`2` 表示输入/证据异常或显式 App 的身份校验失败；`3` 表示操作尚未实现。已实现的稳定错误码包含 `FIRST_PRESENT_OBSERVED`、`AWAITING_GPU_SUBMIT`、`AWAITING_FIRST_PRESENT`、`NO_BOOT_EVIDENCE`、`BOOT_EVIDENCE_INVALID`、`BUILD_IDENTITY_INVALID`、`BAD_ARGUMENT`、`NOT_SUPPORTED`。无需依赖任何中文提示文字分支。
+```bash
+# 在具备合法匹配资源、Xcode 和本地签名的 Apple Silicon Mac 上执行。
+python3 scripts/g2mctl.py build --execute-local \
+  --workspace "$HOME/dm-work" --profile metal4 --stage all
 
-`python3 scripts/g2mctl.py build` 会**明确失败**，返回 `NOT_SUPPORTED`，不会默默调用现有 M1 构建流程。当前无 HTTP 端点，因此没有打开的端口、令牌管理或远程写入能力。未来把 GUI、AI 与构建任务接到同一个执行器之前，需要实现原子 JobRequest/JobEvent 状态、取消/中断、权限边界和显式凭据/签名操作授权；这属于 S2-08/09 的后续阶段，**尚未交付**。
+# 单阶段检查；成功只表示这一阶段通过。
+python3 scripts/g2mctl.py build --execute-local \
+  --workspace "$HOME/dm-work" --profile m3 --stage preflight
+```
 
-本接口的测试随仓库现有 `python3 -m unittest discover -s scripts/tests -v` 自动运行。它们只用合成测试记录，不能作为 D2R 真机首帧、帧率或存档验收凭据。更多数据定义见 [启动诊断手册](STARTUP_DIAGNOSTICS.zh-CN.md)、[S2Arm 整合计划](S2ARM_INTEGRATION_PLAN.zh-CN.md)。
+调用的就是 `m1_local_pipeline.py`，没有第二套构建判断逻辑。只执行 `g2mctl.py build` 仍返回 `NOT_SUPPORTED`，不会悄悄开始构建。`capabilities` 中 `build=false` 表示不允许无授权的自动构建，`build-local-explicit=true` 表示支持上述显式模式。
 
-## M1 流水线过程状态（S2-08 第一阶段）
+同一 Git 公共元数据目录以独占文件锁串行构建，防止并行任务覆盖共享 `Gen` 和派生表头。每个阶段子进程拥有独立 POSIX 会话；失败、超时和取消时清理该会话，不搜索或终止无关进程。默认阶段超时为 7200 秒，可通过 `DM_M1_STAGE_TIMEOUT_SECONDS` 设置 1–86400 秒的有限值。Ctrl-C 和 SIGTERM 生成取消终态，退出码为 130；程序异常、损坏阶段报告不会保留为成功。SIGKILL/断电不可捕获，重跑必须建立全新的证据目录，不能沿用旧包。
 
-`scripts/m1_local_pipeline.py` 执行 `preflight/prepare/headers/verify/build` 时，在**它新建的私有证据目录**中用原子替换、文件权限 `0600` 写 `m1-job-status.json`：启动时 `running`，进入和通过每个阶段时更新；失败时记录失败阶段，全部五阶段通过时为 `passed`，仅独立阶段通过时为 `partial`。原有最终只写一次的 `m1-summary.json` 仍保留。
+这不是签名授权代理。用户在本机显式执行构建时，才通过原流程使用其已有的签名配置。工具不会自动安装或向公开仓库上传 App、日志或资源。
 
-`g2mctl.py job-status` 只读取**用户显式给定**的状态文件，拒绝超长 JSON、符号链接、重复键、未知版本和不一致的阶段/结果状态；不搜索、不读取阶段私有日志，不输出任何输入路径。返回 `M1_JOB_RUNNING`、`M1_JOB_FAILED`、`M1_JOB_PARTIAL`（退出码 1），或 `M1_STAGES_PASSED`（退出码 0）。错误格式为 `M1_STATUS_INVALID`（退出码 2）。即使 `M1_STAGES_PASSED`，含义也只限于**本机程序报告所有构建阶段通过**；JSON 可由本地文件拥有者修改，不是签名证明，不代表安装或真机游戏可玩。
+## 3. 诊断包：仅导出摘要
 
-这不是统一 GUI/AI 写入执行器。构建命令仍由用户在本机显式执行；CLI 无自动构建、安装、远程控制、HTTP 端口、凭据访问或上传。后续共享任务执行和可取消操作仍属于 S2-08/09 的未交付部分。
+```bash
+umask 077
+python3 scripts/g2mctl.py bundle --log "/private/local/boot.txt" \
+  --job-status-file "/private/local/run-xxx/m1-job-status.json" \
+  --output "/private/local/diagnostics.zip"
+python3 scripts/g2mctl.py inspect-bundle "/private/local/diagnostics.zip"
+```
+
+日志和状态至少选一个。输出父目录必须存在，目标必须在仓库之外，不覆盖旧文件。ZIP 以 0600 权限原子发布，仅包含 `manifest.json`、`summary.json`：运行 ID、分析结果、阶段状态、计数和 SHA-256。它不复制原始日志、输入路径、游戏文件、签名或任意自由文本错误信息。仍须由文件所有者审查后再分享。
+
+`inspect-bundle` 检查条目白名单、大小、重复条目和摘要哈希，拒绝额外文件及路径穿越。输出 `bundle_integrity_verified=true` 只证明包内字节和清单自洽；**不证明来源真实、设备执行过或游戏可玩**。
+
+## 4. 真机验收记录
+
+在同一份干净源码、真实最终 App 和对应启动日志下生成模板：
+
+```bash
+umask 077
+python3 scripts/g2mctl.py acceptance-template \
+  --app "/private/local/DmIOS.app" --profile metal4 \
+  --log "/private/local/boot.txt"
+```
+
+返回 JSON 的 `template` 字段可保存为私有 `acceptance.json`。工具先验证实际 App 模块、运行表和 shader 字节，模板据此绑定源码提交、构建指纹、游戏 Build ID、运行 ID 和原日志哈希。模板不预先勾选任何真机项目。
+
+所有者填写设备型号、系统版本、声明的连续游玩秒数（至少 1800），以及主菜单、触控、手柄、图形、音频、退出后存档恢复、后台恢复七项人工观察。附件标签固定为 `frame/session_log/save_reload_log`，每项填写位于记录目录内的相对路径和 SHA-256。附件必须是普通文件，禁止符号链接、目录外路径或超限文件；图像容器要求 PNG/JPEG。原帧图像和完整日志保留本机，不进入诊断摘要包。
+
+```bash
+python3 scripts/g2mctl.py acceptance-check \
+  --record "/private/local/acceptance.json" \
+  --app "/private/local/DmIOS.app" --profile metal4 \
+  --log "/private/local/boot.txt"
+```
+
+检查器再次核对**真实 App 字节**、明确选择的同次启动、原日志哈希、构建/系统版本和附件字节。缺失、失败、旧运行、旧 App 或少于 30 分钟的声明均不能形成完整记录。
+
+即使返回 `ACCEPTANCE_RECORD_COMPLETE`，其范围也只是记录一致性。人工填写的勾选、时长、截图和日志不具备设备签名真实性；工具不识别截图是否正确、不测音频、不证明真实游玩。结果固定包含 `device_execution_verified_by_tool=false`、`authenticity=not_attested` 和 `playability=requires_manual_review`。不得据此自动关闭 M1 或发布可玩版。
+
+## 5. 返回码与安全边界
+
+顶层协议仍为 `game2mobile.operator.v1`。`0` 表示该命令范围内完成；`1` 表示尚未完成或明确失败；`2` 表示参数/证据异常；`3` 表示未授权或未支持操作；`130` 表示取消。`ok=true` 绝不统一代表可玩性。单阶段构建的成功与完整 `all` 构建分别返回 `M1_STAGE_PARTIAL` 和 `M1_STAGES_PASSED`。
+
+旧的启动观察命令保留原有行为和退出码。模板/验收、归档完整性、阶段进度、App 身份与真机可玩性是不同结论。单测只使用合成日志、匿名 Mach-O、普通文本与无害子进程，不包含商业游戏资源。

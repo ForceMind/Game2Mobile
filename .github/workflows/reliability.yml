@@ -1,0 +1,78 @@
+name: Asset-free reliability and source evidence
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-reliability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record public source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/g2m-source"
+          git rev-parse HEAD > "$RUNNER_TEMP/g2m-source/COMMIT"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/g2m-source/TREE"
+          # Bundle tracked public Git objects only, never .git/config, local.env,
+          # ignored resources, credentials, game inputs or workspace outputs.
+          git bundle create "$RUNNER_TEMP/g2m-source/source.bundle" HEAD
+          cd "$RUNNER_TEMP/g2m-source"
+          sha256sum source.bundle > SHA256SUMS
+      - name: Upload source-only reproduction evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game2Mobile-public-source-${{ github.sha }}
+          path: ${{ runner.temp }}/g2m-source/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Portable regression suite
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -m unittest discover -s scripts/tests -v
+          python3 dm/host/tests/test_boot_trace.py
+      - name: Sanitized portable loader boundary checks
+        run: |
+          cc -std=c11 -O1 -g -fsanitize=address,undefined dm/host/tests/t_loader_validate.c -o "$RUNNER_TEMP/loader-checked"
+          "$RUNNER_TEMP/loader-checked"
+
+  native-reliability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate loader metadata with Apple Clang sanitizers
+        run: |
+          test "$(uname -m)" = arm64
+          clang -std=c11 -O1 -g -fsanitize=address,undefined dm/host/tests/t_loader_validate.c -o "$RUNNER_TEMP/loader-checked"
+          "$RUNNER_TEMP/loader-checked"
+      - name: Run actual Apple memory protection and concurrency regressions
+        run: |
+          make -C dm/gfx/tests t_dirty_slots t_dirty_race t_dirty_init t_dirty_failures
+          python3 - <<'PY'
+          import subprocess
+          for binary in ('t_dirty_slots', 't_dirty_race', 't_dirty_init', 't_dirty_failures'):
+              subprocess.run(['./dm/gfx/tests/' + binary], check=True, timeout=30)
+          PY
+      - name: Validate local process cleanup, evidence tools and CLI on Darwin
+        run: |
+          python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_m1_job_status scripts.tests.test_g2mctl scripts.tests.test_pipeline_path_aliases -v

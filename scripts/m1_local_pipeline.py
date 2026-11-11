@@ -27,15 +27,18 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import math
 
 try:
     from .private_build_inputs import inspect_private_headers, PrivateInputError
     from .m1_game_bundle import validate_real_game_bundle, BundleValidationError
     from .m1_job_status import publish_job_status
+    from .process_control import run_stage, ProcessFailure, cancellation_signals, exclusive_checkout
 except ImportError:  # Invoked as a standalone script from the repository root.
     from private_build_inputs import inspect_private_headers, PrivateInputError
     from m1_game_bundle import validate_real_game_bundle, BundleValidationError
     from m1_job_status import publish_job_status
+    from process_control import run_stage, ProcessFailure, cancellation_signals, exclusive_checkout
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = (ROOT / "dm/PRODUCT").read_text(encoding="utf-8").strip()
@@ -45,9 +48,10 @@ SOURCE_OBJECTS_EXPECTED = 92
 
 
 class StageError(RuntimeError):
-    def __init__(self, stage: str, hint: str):
+    def __init__(self, stage: str, hint: str, code: str = "stage_failed"):
         super().__init__(hint)
         self.stage = stage
+        self.code = code
 
 
 def workspace_is_safe(path: Path) -> bool:
@@ -169,14 +173,14 @@ def execute(stage: str, command: list[str], *, cwd: Path,
         out.write(f"Game2Mobile private stage: {stage}\n")
         out.flush()
         try:
-            result = subprocess.run(
-                command, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
-                check=False,
-            )
-        except OSError as exc:
-            raise StageError(stage, f"Unable to start stage: {type(exc).__name__}") from exc
-    if result.returncode != 0:
-        raise StageError(stage, "See its local-only private log for details")
+            timeout = float(env.get("DM_M1_STAGE_TIMEOUT_SECONDS", "7200"))
+            if not math.isfinite(timeout) or not 1 <= timeout <= 86400:
+                raise StageError(stage, "Stage timeout must be 1..86400 seconds", "invalid_stage_timeout")
+            run_stage(command, cwd=cwd, env=env, output=out, timeout=timeout)
+        except ValueError as exc:
+            raise StageError(stage, "Invalid stage timeout", "invalid_stage_timeout") from exc
+        except ProcessFailure as exc:
+            raise StageError(stage, "See local private stage log", exc.code) from exc
 
 
 def build_record(commit: str, profile: str) -> dict:
@@ -221,7 +225,7 @@ def validate_app(app: Path, profile: str = "metal4") -> dict[str, object]:
         raise StageError("build", str(exc)) from exc
 
 
-def run_pipeline(action: str, profile: str, workspace: Path,
+def _run_pipeline(action: str, profile: str, workspace: Path,
                  romfs: Path) -> dict:
     if not workspace_is_safe(workspace):
         raise StageError("environment", "DM_ROOT must be outside the Git checkout")
@@ -270,8 +274,10 @@ def run_pipeline(action: str, profile: str, workspace: Path,
                            current_stage=stage, record=record)
 
     checkpoint("running")
+    active_stage = "environment"
     try:
         for stage in stages:
+            active_stage = stage
             require_source_commit(commit)
             checkpoint("running", stage)
             print(f"Running local-only M1 stage: {stage}", flush=True)
@@ -358,19 +364,70 @@ def run_pipeline(action: str, profile: str, workspace: Path,
         checkpoint(record["result"])
         return record
     except StageError as error:
+        record["end_to_end_build_stages_verified"] = False
+        record["full_game_app_built"] = False
+        record["app_signed_locally"] = False
+        record["app_binary_sha256"] = None
         if error.stage == "source":
             record["full_game_app_built"] = False
             record["app_signed_locally"] = False
             record["app_binary_sha256"] = None
         record["steps"][error.stage] = "failed"
-        record["result"] = "failed"
-        checkpoint("failed", error.stage)
+        record["result"] = "cancelled" if error.code == "stage_cancelled" else "failed"
+        record["error_code"] = error.code
+        checkpoint(record["result"], error.stage)
         raise
+    except KeyboardInterrupt as exc:
+        record["end_to_end_build_stages_verified"] = False
+        record["full_game_app_built"] = False
+        record["app_signed_locally"] = False
+        record["app_binary_sha256"] = None
+        record["steps"][active_stage] = "failed"
+        record["result"] = "cancelled"
+        record["error_code"] = "stage_cancelled"
+        checkpoint("cancelled", active_stage)
+        raise StageError(active_stage, "Local build cancelled", "stage_cancelled") from exc
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        record["end_to_end_build_stages_verified"] = False
+        record["full_game_app_built"] = False
+        record["app_signed_locally"] = False
+        record["app_binary_sha256"] = None
+        record["steps"][active_stage] = "failed"
+        record["result"] = "failed"
+        record["error_code"] = "stage_evidence_invalid"
+        checkpoint("failed", active_stage)
+        raise StageError(active_stage, "Invalid local stage evidence", "stage_evidence_invalid") from exc
     finally:
         # This JSON is metadata only. Raw generated headers, compiled game
         # objects, shader binaries and signature material are NEVER uploaded.
         summary = evidence / "m1-summary.json"
         write_private_json(summary, record)
+
+
+def run_pipeline(action: str, profile: str, workspace: Path, romfs: Path) -> dict:
+    # Direct callers need the same canonicalization as both CLIs. On Darwin,
+    # temporary /var paths alias /private/var; comparing one resolved path to
+    # one alias rejects an otherwise identical licensed-input directory.
+    try:
+        workspace, romfs = Path(workspace).expanduser(), Path(romfs).expanduser()
+        # Python versions differ on resolve(strict=False) with symlink loops.
+        # stat reports ELOOP consistently, while absent future inputs are legal.
+        for candidate in (workspace, romfs):
+            try:
+                candidate.stat()
+            except FileNotFoundError:
+                pass
+        workspace, romfs = workspace.resolve(), romfs.resolve()
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise StageError("environment", "Invalid local workspace path", "workspace_path_invalid") from exc
+    if action == "plan":
+        return _run_pipeline(action, profile, workspace, romfs)
+    checked_platform()
+    try:
+        with exclusive_checkout(ROOT):
+            return _run_pipeline(action, profile, workspace, romfs)
+    except ProcessFailure as exc:
+        raise StageError("environment", "Local checkout is busy or cannot be locked", exc.code) from exc
 
 
 def main() -> int:
@@ -382,24 +439,25 @@ def main() -> int:
     parser.add_argument("--profile", choices=("metal4", "m3"), default="metal4")
     workspace = Path(
         os.environ.get("DM_ROOT", str(Path.home() / "dm-work"))
-    ).expanduser()
+    )
     parser.add_argument("--workspace", type=Path, default=workspace)
     parser.add_argument("--romfs", type=Path, default=None,
                         help="Locally owned version-matched RomFS (not uploaded)")
     args = parser.parse_args()
-    work = args.workspace.expanduser().resolve()
-    romfs = (args.romfs or Path(os.environ.get(
+    work = args.workspace  # run_pipeline owns guarded canonicalization
+    romfs = args.romfs or Path(os.environ.get(
         "DM_ROMFS_SRC", str(work / "data/switch/3.3.94012/Update/RomFS")
-    ))).expanduser().resolve()
+    ))
     try:
-        report = run_pipeline(args.stage, args.profile, work, romfs)
+        with cancellation_signals():
+            report = run_pipeline(args.stage, args.profile, work, romfs)
     except StageError as error:
         print(
-            f"M1 {error.stage} failed: {error}. Raw logs stay on the owner Mac "
+            f"M1 {error.stage}: {error.code}. Raw logs stay on the owner Mac "
             "(outside this Git repository).",
             file=sys.stderr,
         )
-        return 1
+        return 130 if error.code == "stage_cancelled" else 1
     if args.stage != "plan":
         print(
             "Local M1 stage(s) passed. Metadata-only JSON is in DM_ROOT/"
