@@ -73,6 +73,17 @@ jobs:
           for binary in ('t_dirty_slots', 't_dirty_race', 't_dirty_init', 't_dirty_failures'):
               subprocess.run(['./dm/gfx/tests/' + binary], check=True, timeout=30)
           PY
+      - name: Build and test native macOS SwiftUI operator (asset-free)
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift build --package-path dm/launcher/MacOperator
+          swift test --package-path dm/launcher/MacOperator
+          bash dm/launcher/build_mac_operator.sh
+          app=dm/launcher/MacOperator/out/Game2MobileOperator.app
+          test -x "$app/Contents/MacOS/Game2MobileOperator"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist" | grep -Fx org.game2mobile.localoperator
+          /usr/bin/codesign --verify --strict "$app"
       - name: Validate local process cleanup, evidence tools and CLI on Darwin
         run: |
           python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_m1_job_status scripts.tests.test_g2mctl scripts.tests.test_pipeline_path_aliases scripts.tests.test_process_cleanup -v
