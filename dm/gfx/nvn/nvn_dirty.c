@@ -36,7 +36,7 @@ enum { BUSY_WAIT_MS = 2000 };
 #define MAX_RANGE 4096   // 原为 256：内存池多于它时超出的池不跟踪，里面的贴图每次取用都当成脏的重传（暗黑实测峰值见内存读数行的「内存池」；塞尔达约 300 个，踩过）。扫描只到已用的槽数，容量大不增加开销 | was 256: with more memory pools than that the excess pools are untracked and their textures are treated as dirty and re-uploaded on every use (for Diablo's measured peak see "memory pools" in the memory readout line; Zelda has about 300 and hit this). The scan only covers slots in use, so a larger capacity costs nothing
 // A new pool incarnation at the same guest address must invalidate cached upload stamps.
 // Keep epoch separate from per-page gen: on_fault relies on gen==0 before any protection.
-typedef struct { uintptr_t base, end; _Atomic uint8_t *state; _Atomic uint64_t *gen; size_t cap; _Atomic uint64_t epoch; _Atomic int live; } range_t;
+typedef struct { uintptr_t base, end; _Atomic uint8_t *state; _Atomic uint64_t *gen; size_t cap; _Atomic uint64_t epoch; _Atomic int failed; _Atomic int live; } range_t;
 static range_t g_r[MAX_RANGE];
 static _Atomic int g_nr;
 static uintptr_t g_pg, g_shift;
@@ -48,9 +48,10 @@ void nvn_dirty_stat(int *live, int *peak, int *cap) { *live = atomic_load(&g_liv
 static _Atomic int g_overflow_logged;
 static pthread_mutex_t g_slot_mu = PTHREAD_MUTEX_INITIALIZER;   // 建池 / 销池（客体线程，可能并发）互斥选槽；缺页处理路径不碰它 | Pool creation / destruction (guest threads, possibly concurrent) pick slots under a mutex; the page-fault handling path does not touch it
 static _Atomic uint64_t g_mp_calls, g_mp_pages, g_mp_ticks;   // 本模块的 mprotect：调用次数、覆盖页数、耗时（mach 时基，缺页路径里也安全） | This module's mprotect: call count, pages covered, time spent (mach timebase, safe in the page-fault path too)
-static void mp(uintptr_t a, size_t len, int prot) {
-    uint64_t t = mach_absolute_time(); mprotect((void *)a, len, prot);
+static int mp(uintptr_t a, size_t len, int prot) {
+    uint64_t t = mach_absolute_time(); int result = mprotect((void *)a, len, prot);
     atomic_fetch_add(&g_mp_ticks, mach_absolute_time() - t); atomic_fetch_add(&g_mp_calls, 1); atomic_fetch_add(&g_mp_pages, len >> g_shift);
+    return result == 0;
 }
 
 static mach_timebase_info_data_t g_tb;   // 首次登记池时取好（缺页路径里只做乘除） | Obtained when a pool is first registered (the fault path only multiplies and divides)
@@ -74,10 +75,15 @@ static range_t *find(uintptr_t a) {
     for (int i = 0; i < n; i++) if (atomic_load_explicit(&g_r[i].live, memory_order_acquire) && a >= g_r[i].base && a < g_r[i].end) return &g_r[i];
     return NULL;
 }
-static void unprotect_page(range_t *r, uintptr_t p) {   // 调用方已把状态从 PROT 改成 BUSY | The caller has already changed the state from PROT to BUSY
-    mp(r->base + (p << g_shift), g_pg, PROT_READ | PROT_WRITE);
+static int unprotect_page(range_t *r, uintptr_t p) {   // 调用方已把状态从 PROT 改成 BUSY | The caller has already changed the state from PROT to BUSY
+    if (!mp(r->base + (p << g_shift), g_pg, PROT_READ | PROT_WRITE)) {
+        atomic_store(&r->failed, 1);
+        atomic_store(&r->state[p], PG_PROT);
+        return 0; /* Not writable: never ask the fault handler to retry forever. */
+    }
     atomic_store(&r->gen[p], atomic_fetch_add(&g_now, 1) + 1);
     atomic_store(&r->state[p], PG_NONE);
+    return 1;
 }
 static int on_fault(void *addr, int is_write, void *uc) {
     (void)uc;
@@ -85,19 +91,21 @@ static int on_fault(void *addr, int is_write, void *uc) {
     if (!r) return 0;
     uintptr_t p = ((uintptr_t)addr - r->base) >> g_shift;
     uint8_t st = PG_PROT;
-    if (atomic_compare_exchange_strong(&r->state[p], &st, PG_BUSY)) { unprotect_page(r, p); atomic_fetch_add(&g_faults, 1); return 1; }
+    if (atomic_compare_exchange_strong(&r->state[p], &st, PG_BUSY)) { if (!unprotect_page(r, p)) return 0; atomic_fetch_add(&g_faults, 1); return 1; }
     if (st == PG_BUSY) return busy_wait(r, p);   // 别的线程正在改这页的保护：等它改完重执行（改成了只读就再缺页一次、走上面那一支） | Another thread is changing this page's protection: wait for it to finish and re-execute (if it became read-only, it faults once more and takes the branch above)
-    return atomic_load(&r->gen[p]) != 0;   // 刚被别的线程解掉（本次缺页发生在解之前）：重执行；从未保护过的页不是我们的 | Just unprotected by another thread (this fault happened before the unprotect): re-execute; pages that were never protected are not ours
+    return !atomic_load(&r->failed) && atomic_load(&r->gen[p]) != 0;   // 刚被别的线程解掉（本次缺页发生在解之前）：重执行；从未保护过的页不是我们的 | Just unprotected by another thread (this fault happened before the unprotect): re-execute; pages that were never protected are not ours
 }
 static void prep_write(void *addr, size_t len) {
-    uintptr_t a = (uintptr_t)addr, e = a + len;
+    uintptr_t a = (uintptr_t)addr;
+    if (len > UINTPTR_MAX - a) return;
+    uintptr_t e = a + len;
     while (len && a < e) {
         range_t *r = find(a);
         if (!r) { a = (a + g_pg) & ~(g_pg - 1); continue; }
         uintptr_t stop = e < r->end ? e : r->end;
         for (uintptr_t p = (a - r->base) >> g_shift, q = (stop - 1 - r->base) >> g_shift; p <= q; p++) {
             for (;;) { uint8_t st = PG_PROT;   // 见 BUSY 等完要重看：对方可能是在设只读，等完这页是 PROT，照样得解 | After waiting out BUSY, look again: the other side may have been setting read-only, in which case the page is PROT after the wait and still has to be unprotected
-                if (atomic_compare_exchange_strong(&r->state[p], &st, PG_BUSY)) { unprotect_page(r, p); atomic_fetch_add(&g_preps, 1); break; }
+                if (atomic_compare_exchange_strong(&r->state[p], &st, PG_BUSY)) { if (unprotect_page(r, p)) atomic_fetch_add(&g_preps, 1); break; }
                 if (st != PG_BUSY || !busy_wait(r, p)) break; }
         }
         a = stop;
@@ -116,6 +124,9 @@ static void dirty_global_init(void) {
 }
 void nvn_dirty_add_range(const void *mem, size_t size) {
     pthread_once(&g_dirty_once, dirty_global_init);
+    uintptr_t address = (uintptr_t)mem;
+    if (!mem || !size || size > UINTPTR_MAX - address ||
+        address + size > UINTPTR_MAX - (g_pg - 1)) return;
     atomic_fetch_add(&g_adds_total, 1);
     pthread_mutex_lock(&g_slot_mu);
     int n = atomic_load(&g_nr);
@@ -148,6 +159,7 @@ void nvn_dirty_add_range(const void *mem, size_t size) {
     // Resetting per-page gen to zero is required for fault ownership. The new
     // pool epoch instead forces all textures stamped before this registration
     // to upload again, even if the virtual address was reused unchanged.
+    atomic_store(&r->failed, 0);
     atomic_store(&r->epoch, atomic_fetch_add(&g_now, 1) + 1);
     if (slot == n) atomic_store(&g_nr, n + 1);
     atomic_store_explicit(&r->live, 1, memory_order_release);
@@ -158,11 +170,18 @@ void nvn_dirty_add_range(const void *mem, size_t size) {
 void nvn_dirty_remove_range(const void *mem) {
     pthread_mutex_lock(&g_slot_mu);
     range_t *r = find((uintptr_t)mem);
-    if (r) { prep_write((void *)r->base, r->end - r->base); atomic_store_explicit(&r->live, 0, memory_order_release); atomic_fetch_sub(&g_live, 1); }
+    if (r) {
+        prep_write((void *)r->base, r->end - r->base);
+        for (size_t page = 0; page < (r->end - r->base) / g_pg; page++)
+            if (atomic_load(&r->state[page]) != PG_NONE)
+                die("dirty tracker could not restore writable pool pages");
+        atomic_store_explicit(&r->live, 0, memory_order_release);
+        atomic_fetch_sub(&g_live, 1);
+    }
     pthread_mutex_unlock(&g_slot_mu);
 }
 int nvn_dirty_tracked(const void *addr, size_t len) {
-    range_t *r = find((uintptr_t)addr); return r && (uintptr_t)addr + len <= r->end;
+    range_t *r = find((uintptr_t)addr); return r && !atomic_load(&r->failed) && len <= r->end - (uintptr_t)addr;
 }
 // 设只读：先把页标成 BUSY，mprotect 落地后才标 PROT（次序与不变式见文件头的状态说明）
 // Set read-only: mark the page BUSY first, and mark it PROT only after mprotect has landed (for the order and the invariant see the state notes at the top of the file)
@@ -179,7 +198,16 @@ void nvn_dirty_protect(const void *addr, size_t len) {
         uint8_t st = PG_NONE;
         int took = i <= q && atomic_compare_exchange_strong(&r->state[i], &st, PG_BUSY);
         if (took && !open) { run = i; open = 1; }
-        if (!took && open) { mp(r->base + (run << g_shift), (i - run) << g_shift, PROT_READ); for (uintptr_t k = run; k < i; k++) atomic_store(&r->state[k], PG_PROT); open = 0; }
+        if (!took && open) {
+            if (!mp(r->base + (run << g_shift), (i - run) << g_shift, PROT_READ) &&
+                !atomic_exchange(&r->failed, 1))
+                LOG("dirty tracker: read protection failed; pool cache is now conservative");
+            /* On failure some pages may already be read-only. Keep them in
+             * the possibly-protected state so prep_write/remove can restore
+             * them, but never trust this pool's cached generations again. */
+            for (uintptr_t k = run; k < i; k++) atomic_store(&r->state[k], PG_PROT);
+            open = 0;
+        }
     }
 }
 uint64_t nvn_dirty_now(void) { return atomic_load(&g_now); }

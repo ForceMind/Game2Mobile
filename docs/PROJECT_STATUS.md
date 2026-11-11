@@ -82,3 +82,9 @@ Game2Mobile is currently a Diablo II: Resurrected compatibility project, not a u
 - [PR #17](https://github.com/ForceMind/Game2Mobile/pull/17) merged as `dd771c9d22c400256b8155241ea2e0ab05ed5a97`: fix texture cache staleness after guest memory pool destruction/reuse, correct actual 4096-capacity overflow test, run native write protection concurrency tests on macOS 15 and 26. Nine CI jobs passed.
 - Current S2-08 first-stage work adds per-stage atomic private M1 progress and read-only JSON `g2mctl job-status` for owner-machine debugging, but no shared GUI executor, remote write control, or independent device gameplay validation. All tests are synthetic/asset-free.
 - M1 [issue #1](https://github.com/ForceMind/Game2Mobile/issues/1) **remains open**: no owner Mac licensed-game 92/92 full link/sign, real iOS gameplay, frame screenshots, audio, save restore or playable release evidence.
+
+## Asset-free reliability work — 2026-11-10
+
+[PR #20](https://github.com/ForceMind/Game2Mobile/pull/20) extends the existing implementation with bounded loader metadata/gate validation, conservative memory-protection failure handling, checkout-serialized and cancellable M1 stages, explicit local CLI build/export, summary-only diagnostic archives, and consistency checking for owner-authored device acceptance records. The production source inventory remains 92; no game-dependent header is fabricated. See [implementation and remaining scope](ASSET_FREE_CLOSEOUT.zh-CN.md) and [operator commands](AI_OPERATOR_CLI.zh-CN.md).
+
+Public/synthetic test results remain separate from licensed-module semantics, full linked/signed game builds, device installation and playability. No complete frame recorder/replayer, graphical launcher, second-game adaptation or new-platform release is claimed. M1 remains open.

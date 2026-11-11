@@ -19,6 +19,10 @@ from dataclasses import dataclass, field
 import json
 import math
 from pathlib import Path
+try:
+    from .local_io import regular_file
+except ImportError:
+    from local_io import regular_file
 import re
 import sys
 from typing import BinaryIO
@@ -389,7 +393,7 @@ def analyze_log(path: Path, run_id: str | None = None) -> dict:
         return _empty_report("input_error", None, "explicit", [],
                              [{"line": 0, "code": "invalid_requested_run_id"}])
     try:
-        with Path(path).open("rb") as stream:
+        with regular_file(path) as stream:
             return analyze_stream(stream, run_id)
     except (OSError, ValueError):
         return _empty_report("input_error", run_id, "explicit" if run_id else "latest", [],

@@ -10,6 +10,8 @@ FW=-framework Metal -framework Foundation -framework QuartzCore -framework Image
 # Host crash.c is linked in as well: the write-protect unit tests go through the same page-fault hook as production
 t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c $(GFX) $(GFX_H)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c $(GFX) $(FW)
+t_dirty_failures: t_dirty_failures.c ../nvn/nvn_dirty.c ../nvn/nvn_dirty.h
+	clang $(CFLAGS) -o $@ t_dirty_failures.c
 t_dirty_slots: t_dirty_slots.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h
 	clang $(CFLAGS) -o $@ t_dirty_slots.c ../../host/crash.c ../nvn/nvn_dirty.c
 t_dirty_race: t_dirty_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h
@@ -63,6 +65,8 @@ run: \
 	t_cover \
 	t_defer_chain \
 	t_deswz_gpu \
+	t_dirty_failures \
+	t_dirty_init \
 	t_dirty_race \
 	t_dirty_slots \
 	t_fuse_check \
@@ -85,6 +89,8 @@ run: \
 	./t_nvn
 	./t_dirty_slots
 	./t_dirty_race
+	./t_dirty_init
+	./t_dirty_failures
 	./t_builtin
 	./t_deswz_gpu
 	./t_pace
