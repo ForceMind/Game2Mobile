@@ -1,0 +1,85 @@
+name: Import reviewed public reliability patch (temporary branch-only)
+
+on:
+  push:
+    branches: [feat/asset-free-reliability-completion]
+    paths:
+      - '.github/workflows/import-reviewed-reliability.yml'
+      - '.github/g2m-transfer.*'
+
+permissions:
+  contents: read
+
+jobs:
+  apply-reviewed-source:
+    if: github.repository == 'ForceMind/Game2Mobile' && github.actor == 'ForceMind' && github.ref == 'refs/heads/feat/asset-free-reliability-completion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact public source payload and apply without changing workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, lzma, os, subprocess
+          from pathlib import Path
+          base = '4916bfac3c6b48c321d2939aa9fe7f02e2ceb12b'
+          helpers = {'.github/workflows/import-reviewed-reliability.yml'} | {f'.github/g2m-transfer.{i}' for i in range(4)}
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD'], text=True).splitlines())
+          assert changed == helpers, 'Branch changed since the reviewed patch base'
+          assert not subprocess.check_output(['git', 'status', '--porcelain']).strip()
+          blob = b''.join(Path(f'.github/g2m-transfer.{i}').read_bytes() for i in range(4))
+          assert len(blob) == 32268
+          assert hashlib.sha256(blob).hexdigest() == 'c2236a4d03bc53b56d3e70f7c6d18e81cd2793a1f7d16fad7f81f1b51e0074c9'
+          dec = lzma.LZMADecompressor(memlimit=128*1024*1024)
+          patch = dec.decompress(blob, max_length=114611)
+          assert dec.eof and not dec.unused_data and len(patch) == 114610
+          assert hashlib.sha256(patch).hexdigest() == '87c10ca4442c48691d723928bc2b91fd7b7e4389c3627c91554949f6875c0900'
+          path = Path(os.environ['RUNNER_TEMP']) / 'reviewed-public.patch'
+          path.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--index', '--unidiff-zero', '--check', str(path)], check=True)
+          subprocess.run(['git', 'apply', '--index', '--unidiff-zero', str(path)], check=True)
+          allowed = {
+              'README.md', 'README.zh-CN.md', 'dm/gfx/nvn/nvn_dirty.c', 'dm/gfx/tests/Makefile',
+              'dm/host/loader.c', 'docs/AI_OPERATOR_CLI.zh-CN.md', 'docs/M1_PRIVATE_BUILD.zh-CN.md',
+              'docs/PROJECT_STATUS.md', 'docs/S2ARM_INTEGRATION_PLAN.zh-CN.md', 'scripts/boot_diagnostics.py',
+              'scripts/g2mctl.py', 'scripts/m1_job_status.py', 'scripts/m1_local_pipeline.py',
+              'dm/gfx/tests/t_dirty_failures.c', 'dm/host/loader_validate.h', 'dm/host/tests/t_loader_validate.c',
+              'docs/ASSET_FREE_CLOSEOUT.zh-CN.md', 'scripts/evidence_tools.py', 'scripts/local_io.py',
+              'scripts/process_control.py', 'scripts/tests/test_loader_validation.py', 'scripts/tests/test_reliability_tools.py'
+          }
+          staged = set(subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines())
+          assert staged == allowed, 'Unexpected source or workflow modification'
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          print('Exact reviewed patch applied; 22 public source/test/document files only.')
+          PY
+      - name: Verify source changes before the feature-branch commit
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_loader_validation scripts.tests.test_m1_job_status scripts.tests.test_g2mctl -v
+          python3 scripts/release_checks.py source
+      - name: Commit only reviewed index and fast-forward only the feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Harden loader and dirty memory boundaries; complete local reliability and evidence tools'
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/asset-free-reliability-completion
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          # This workflow and the four public transfer chunks are removed by
+          # the connected author before final validation/merge. Never push main.
