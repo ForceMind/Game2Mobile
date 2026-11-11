@@ -43,3 +43,9 @@ t_xv
 t_xv.dSYM/
 t_ub
 t_ub.dSYM/
+
+# Asset-free reliability test executables; source files remain tracked.
+t_dirty_init
+t_dirty_init.dSYM/
+t_dirty_failures
+t_dirty_failures.dSYM/
