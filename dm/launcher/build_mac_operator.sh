@@ -14,6 +14,10 @@ bin_dir="$(swift build --package-path "$package" --configuration release --show-
 if [[ ! -x "$bin_dir/Game2MobileOperator" ]]; then
   echo 'Native macOS operator binary was not built' >&2; exit 3
 fi
+# Never follow an externally substituted output directory during cleanup.
+if [[ -L "$package/out" ]]; then
+  echo 'Refusing a symlinked output directory' >&2; exit 4
+fi
 mkdir -p "$package/out"
 if [[ -e "$output" || -L "$output" ]]; then
   # Fixed project-owned output only; refuse symlinks to other directories.

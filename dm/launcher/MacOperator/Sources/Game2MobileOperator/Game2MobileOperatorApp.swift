@@ -78,7 +78,9 @@ final class OperatorState: ObservableObject {
 }
 
 struct ContentView: View {
-    @StateObject private var controller = OperatorState()
+    // Owner lives at App scope so closing/reopening a window does not orphan
+    // a running M1 process or lose its cancellation button.
+    @ObservedObject var controller: OperatorState
     @State private var repository: URL?
     @State private var workspace: URL?
     @State private var bootLog: URL?
@@ -200,7 +202,8 @@ struct ContentView: View {
 
 @main
 struct Game2MobileOperatorApp: App {
+    @StateObject private var controller = OperatorState()
     var body: some Scene {
-        WindowGroup("Game2Mobile Operator") { ContentView() }
+        WindowGroup("Game2Mobile Operator") { ContentView(controller: controller) }
     }
 }
