@@ -75,4 +75,4 @@ jobs:
           PY
       - name: Validate local process cleanup, evidence tools and CLI on Darwin
         run: |
-          python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_m1_job_status scripts.tests.test_g2mctl scripts.tests.test_pipeline_path_aliases -v
+          python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_m1_job_status scripts.tests.test_g2mctl scripts.tests.test_pipeline_path_aliases scripts.tests.test_process_cleanup -v
