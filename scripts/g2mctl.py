@@ -136,7 +136,7 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
             return _response(command, "BAD_ARGUMENT", 2)
         from contextlib import redirect_stdout
         import io
-        workspace = args.workspace.expanduser().resolve()
+        workspace = args.workspace  # run_pipeline owns guarded canonicalization
         romfs = workspace / "data/switch/3.3.94012/Update/RomFS"
         try:
             with cancellation_signals(), redirect_stdout(io.StringIO()):
@@ -169,12 +169,12 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
             result = evidence.check_acceptance(args.record, args.app, args.profile, args.log)
             return _response(command, "ACCEPTANCE_RECORD_COMPLETE" if result["record_complete"] else "ACCEPTANCE_INCOMPLETE",
                              result["exit_code"], acceptance=result, playability="requires_manual_review")
-        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             return _response(command, "LOCAL_EVIDENCE_INVALID", 2, playability="unverified")
     if command == "job-status":
         try:
             job = read_job_status(args.status_file)
-        except (JobStatusError, OSError, ValueError, UnicodeError, RecursionError):
+        except (JobStatusError, OSError, ValueError, UnicodeError, RuntimeError):
             return _response(command, "M1_STATUS_INVALID", 2, playability="unverified")
         code, exit_code = {
             "running": ("M1_JOB_RUNNING", 1),
@@ -187,8 +187,11 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
     if command == "status" and ((args.app is None) != (args.profile is None) or
                                  (args.require_clean and args.app is None)):
         return _response(command, "BAD_ARGUMENT", 2)
-    report = analyze_log(_log_path(args.log, os.environ if environ is None else environ),
-                         args.run_id)
+    try:
+        report = analyze_log(_log_path(args.log, os.environ if environ is None else environ),
+                             args.run_id)
+    except (OSError, ValueError, RuntimeError):
+        return _response(command, "BOOT_INPUT_INVALID", 2, playability="unverified")
     exit_code = report["exit_code"]
     code = ERRORS.get(report["result"], "BOOT_UNCLASSIFIED")
     if command == "diagnose":
@@ -207,7 +210,7 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
             identity = {"status": "verified", "verified": True, "profile": args.profile,
                         **verify_identity(args.app, args.profile, repo=ROOT,
                                           require_clean=args.require_clean)}
-        except (IdentityError, OSError, ValueError, UnicodeError, RecursionError):
+        except (IdentityError, OSError, ValueError, UnicodeError, RuntimeError):
             # Never print an exception: OS errors may contain private paths.
             identity = {"status": "invalid", "verified": False, "profile": args.profile}
             code, exit_code = "BUILD_IDENTITY_INVALID", 2

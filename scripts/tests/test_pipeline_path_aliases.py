@@ -1,6 +1,7 @@
 """Real directory aliases and repeated cancellation, without game inputs."""
 from contextlib import ExitStack
 import os
+import json
 from pathlib import Path
 import signal
 import subprocess
@@ -54,6 +55,40 @@ class PipelinePathAliases(unittest.TestCase):
                     pipeline.run_pipeline('preflight', 'metal4', alias,
                                           alias / 'data/switch/3.3.94012/Update/RomFS')
             execute.assert_not_called()
+
+    def test_both_build_clis_reject_symlink_loop_without_path_or_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loop = Path(tmp) / 'private-workspace-loop'
+            loop.symlink_to(loop)
+            commands = (
+                ['scripts/g2mctl.py', 'build', '--execute-local', '--workspace', str(loop)],
+                ['scripts/m1_local_pipeline.py', 'preflight', '--workspace', str(loop)],
+            )
+            for command in commands:
+                with self.subTest(cli=command[0]):
+                    result = subprocess.run([sys.executable, *command], cwd=pipeline.ROOT,
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertNotIn(str(tmp), result.stdout + result.stderr)
+                    self.assertNotIn('Traceback', result.stdout + result.stderr)
+                    if command[0].endswith('g2mctl.py'):
+                        value = json.loads(result.stdout)
+                        self.assertEqual(value['error_code'], 'workspace_path_invalid')
+                    else:
+                        self.assertIn('workspace_path_invalid', result.stderr)
+
+    def test_evidence_path_loop_still_returns_one_sanitized_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loop = Path(tmp) / 'private-evidence-loop'
+            loop.symlink_to(loop)
+            result = subprocess.run(
+                [sys.executable, 'scripts/g2mctl.py', 'bundle', '--log', 'boot.txt',
+                 '--output', str(loop / 'report.zip')], cwd=pipeline.ROOT,
+                capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)['code'], 'LOCAL_EVIDENCE_INVALID')
+            self.assertNotIn(str(tmp), result.stdout + result.stderr)
+            self.assertNotIn('Traceback', result.stdout + result.stderr)
 
     def test_repeated_sigterm_during_cleanup_still_reaps_child(self):
         with tempfile.TemporaryDirectory() as tmp:

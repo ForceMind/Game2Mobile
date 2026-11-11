@@ -409,8 +409,15 @@ def run_pipeline(action: str, profile: str, workspace: Path, romfs: Path) -> dic
     # temporary /var paths alias /private/var; comparing one resolved path to
     # one alias rejects an otherwise identical licensed-input directory.
     try:
-        workspace = Path(workspace).expanduser().resolve()
-        romfs = Path(romfs).expanduser().resolve()
+        workspace, romfs = Path(workspace).expanduser(), Path(romfs).expanduser()
+        # Python versions differ on resolve(strict=False) with symlink loops.
+        # stat reports ELOOP consistently, while absent future inputs are legal.
+        for candidate in (workspace, romfs):
+            try:
+                candidate.stat()
+            except FileNotFoundError:
+                pass
+        workspace, romfs = workspace.resolve(), romfs.resolve()
     except (OSError, ValueError, RuntimeError) as exc:
         raise StageError("environment", "Invalid local workspace path", "workspace_path_invalid") from exc
     if action == "plan":
@@ -432,15 +439,15 @@ def main() -> int:
     parser.add_argument("--profile", choices=("metal4", "m3"), default="metal4")
     workspace = Path(
         os.environ.get("DM_ROOT", str(Path.home() / "dm-work"))
-    ).expanduser()
+    )
     parser.add_argument("--workspace", type=Path, default=workspace)
     parser.add_argument("--romfs", type=Path, default=None,
                         help="Locally owned version-matched RomFS (not uploaded)")
     args = parser.parse_args()
-    work = args.workspace.expanduser().resolve()
-    romfs = (args.romfs or Path(os.environ.get(
+    work = args.workspace  # run_pipeline owns guarded canonicalization
+    romfs = args.romfs or Path(os.environ.get(
         "DM_ROMFS_SRC", str(work / "data/switch/3.3.94012/Update/RomFS")
-    ))).expanduser().resolve()
+    ))
     try:
         with cancellation_signals():
             report = run_pipeline(args.stage, args.profile, work, romfs)
