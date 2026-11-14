@@ -1,0 +1,60 @@
+name: Import pinned Game2Mobile doctor patch (feature branch only)
+on:
+  push:
+    branches: [feat/mac-doctor-and-local-dmg]
+permissions:
+  contents: write
+jobs:
+  stage:
+    if: github.event.head_commit.message == 'Stage pinned Game2Mobile doctor patch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 2
+      - name: Verify public patch, apply allowlisted files, and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma
+          chunks = [Path(f'.github/g2m-doctor/part-{n}.txt').read_text(encoding='ascii') for n in range(4)]
+          encoded = ''.join(chunks)
+          if len(encoded) != 14220:
+              raise SystemExit('Pinned source length mismatch')
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          if hashlib.sha256(patch).hexdigest() != 'a1a2f7448ca971f76ef4bd4630afd88386c0f1118c9f5da7f1cce8d6283f02fc':
+              raise SystemExit('Pinned patch digest mismatch')
+          Path('.github/g2m-doctor/source.patch').write_bytes(patch)
+          PY
+          git apply --check .github/g2m-doctor/source.patch
+          git apply .github/g2m-doctor/source.patch
+          rm .github/g2m-doctor/source.patch
+          git add -A
+          python3 - <<'PY'
+          import subprocess
+          actual = set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          allowed = {
+            'dm/launcher/MacOperator/Sources/Game2MobileOperator/Game2MobileOperatorApp.swift',
+            'dm/launcher/MacOperator/Sources/OperatorCore/OperatorCore.swift',
+            'dm/launcher/MacOperator/Tests/OperatorCoreTests/OperatorCoreTests.swift',
+            'dm/launcher/README.zh-CN.md',
+            'dm/launcher/package_mac_operator.sh',
+            'docs/AI_OPERATOR_CLI.zh-CN.md',
+            'docs/ASSET_FREE_CLOSEOUT.zh-CN.md',
+            'docs/S2ARM_INTEGRATION_PLAN.zh-CN.md',
+            'scripts/g2mctl.py',
+            'scripts/local_doctor.py',
+            'scripts/tests/test_local_doctor.py'
+          }
+          if actual != allowed:
+              raise SystemExit('Unexpected changed file inventory: ' + str(sorted(actual ^ allowed)))
+          print('Source-only allowlist verified: ', len(actual), 'files')
+          PY
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.tests.test_local_doctor scripts.tests.test_g2mctl -q
+          bash -n dm/launcher/build_mac_operator.sh dm/launcher/package_mac_operator.sh
+          git -c user.name='Game2Mobile Import Bot' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Implement read-only build environment doctor and local macOS DMG packager'
+          git push origin HEAD:refs/heads/feat/mac-doctor-and-local-dmg
