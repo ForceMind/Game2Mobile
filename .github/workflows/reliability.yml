@@ -84,6 +84,20 @@ jobs:
           test -x "$app/Contents/MacOS/Game2MobileOperator"
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist" | grep -Fx org.game2mobile.localoperator
           /usr/bin/codesign --verify --strict "$app"
+          bash dm/launcher/package_mac_operator.sh
+          dmg=dm/launcher/MacOperator/out/Game2Mobile-Operator-local.dmg
+          test -s "$dmg"
+          /usr/bin/hdiutil verify -quiet "$dmg"
+          (cd dm/launcher/MacOperator/out && /usr/bin/shasum -a 256 -c Game2Mobile-Operator-local.dmg.sha256)
+      - name: Upload only the game-free engineering installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game2Mobile-Operator-${{ matrix.os }}
+          path: |
+            dm/launcher/MacOperator/out/Game2Mobile-Operator-local.dmg
+            dm/launcher/MacOperator/out/Game2Mobile-Operator-local.dmg.sha256
+          if-no-files-found: error
+          retention-days: 7
       - name: Validate local process cleanup, evidence tools and CLI on Darwin
         run: |
           python3 -m unittest scripts.tests.test_reliability_tools scripts.tests.test_m1_job_status scripts.tests.test_g2mctl scripts.tests.test_pipeline_path_aliases scripts.tests.test_process_cleanup -v
