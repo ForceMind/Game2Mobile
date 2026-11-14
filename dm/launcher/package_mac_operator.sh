@@ -3,6 +3,7 @@
 # Produce a local, unnotarized engineering-tool disk image only.
 # No game App, developer signing, keychain, resources or network publishing.
 set -euo pipefail
+umask 077
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 package="$root/dm/launcher/MacOperator"
 out="$package/out"
@@ -29,9 +30,11 @@ trap 'rm -rf "$work"' EXIT
 # Files are owned by the local user; publish the digest last, with a relative
 # filename so shasum -c does not expose owner paths when reviewing a package.
 chmod 0600 "$work/$name"
-mv "$work/$name" "$dmg"
-(cd "$out" && /usr/bin/shasum -a 256 "$name" > "$name.sha256")
-chmod 0600 "$digest"
+# Hard-link (same filesystem) for an atomic create-if-absent. Unlike mv,
+# this cannot overwrite another owner's concurrent run or a substituted file.
+/bin/ln "$work/$name" "$dmg"
+(cd "$out" && /usr/bin/shasum -a 256 "$name" > "$work/$name.sha256")
+/bin/ln "$work/$name.sha256" "$digest"
 (cd "$out" && /usr/bin/shasum -a 256 -c "$name.sha256")
 echo 'Created unnotarized local macOS engineering installer:'
 echo "$dmg"
