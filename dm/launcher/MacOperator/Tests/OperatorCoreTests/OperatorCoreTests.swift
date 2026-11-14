@@ -8,6 +8,39 @@ final class OperatorCoreTests: XCTestCase {
         {"schema":"game2mobile.operator.v1","command":"\(cmd)","code":"\(code)","exit_code":\(exit),"ok":\(exit == 0),"scope":"local-read-only","playability":"unverified"\(extras)}
         """.data(using: .utf8)!
     }
+    func testDoctorReadOnlyCommandAndPrivacyConformance() throws {
+        XCTAssertEqual(OperatorRequest.doctor.arguments, ["doctor"])
+        XCTAssertFalse(OperatorRequest.doctor.isMutating)
+        let entries: [(String, String)] = [
+            ("platform", "ready"), ("python3", "ready"), ("git", "ready"),
+            ("make", "ready"), ("xcodegen", "ready"), ("spirv_cross", "ready"),
+            ("dotnet", "ready"), ("git_checkout", "ready"), ("source_clean", "ready"),
+            ("xcode", "ready"), ("iphoneos_sdk", "ready"), ("metal_compiler", "ready"),
+            ("licensed_inputs", "not_checked"), ("local_signing", "not_checked"),
+            ("physical_device", "not_checked")
+        ]
+        let items = entries.map { "{\"id\":\"\($0.0)\",\"status\":\"\($0.1)\"}" }.joined(separator: ",")
+        let data = json("doctor", "LOCAL_TOOLCHAIN_READY", 0,
+                        ",\"toolchain_ready\":true,\"checks\":[\(items)],\"secret\":\"/private/file\"")
+        let reply = try OperatorReply.parse(data, for: .doctor, processExit: 0)
+        XCTAssertTrue(reply.toolchain_ready == true)
+        XCTAssertTrue(reply.summaryLines.contains("Metal 编译器：就绪"))
+        XCTAssertTrue(reply.summaryLines.contains("正版游戏资源：未检查"))
+        XCTAssertFalse(reply.summaryLines.joined().contains("/private/file"))
+        let failed = json("doctor", "LOCAL_TOOLCHAIN_INCOMPLETE", 1,
+                          ",\"toolchain_ready\":false,\"checks\":[\(items)]")
+        XCTAssertThrowsError(try OperatorReply.parse(failed, for: .doctor, processExit: 1))
+    }
+    func testDoctorRejectsFreeformOrMismatchedScope() {
+        let malformed = json("doctor", "LOCAL_TOOLCHAIN_READY", 0,
+                             ",\"toolchain_ready\":true,\"checks\":[{\"id\":\"private_path\",\"status\":\"ready\"}]")
+        XCTAssertThrowsError(try OperatorReply.parse(malformed, for: .doctor, processExit: 0))
+        let wrongScope = Data("""
+            {"schema":"game2mobile.operator.v1","command":"build","code":"M1_STAGES_PASSED","exit_code":0,"ok":true,"scope":"local-read-only"}
+            """.utf8)
+        XCTAssertThrowsError(try OperatorReply.parse(wrongScope,
+                            for: .buildLocal(workspace: "/private/ws", profile: .metal4, stage: .all), processExit: 0))
+    }
     func testNoImplicitBuildPermission() {
         XCTAssertEqual(OperatorRequest.buildPlan.arguments, ["build-plan"])
         XCTAssertFalse(OperatorRequest.buildPlan.isMutating)

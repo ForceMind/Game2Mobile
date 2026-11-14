@@ -32,3 +32,21 @@ open dm/launcher/MacOperator/out/Game2MobileOperator.app
 ## 测试和继续集成
 
 纯协议/命令行为位于 `MacOperator/Tests/OperatorCoreTests`，macOS CI 在 15 和 26 两套 Apple Silicon Runner 执行 `swift build`、`swift test` 和 `build_mac_operator.sh`。后续要实现统一构建任务持久化、可恢复的跨 UI 会话取消、GUI 级别可用性/无障碍测试和真正的游戏 App 安装，需要另行开发及签名/实体设备验收。详见 [S2Arm 整合计划](../../docs/S2ARM_INTEGRATION_PLAN.zh-CN.md)。
+
+## 只读构建环境检查（新增）
+
+在源码根目录运行 `python3 scripts/g2mctl.py doctor`，或在 GUI 选择仓库后点击 **检查构建环境**。它只检查 Apple Silicon 平台、公开工具（Python、Git、Make、XcodeGen、SPIRV-Cross、.NET）、Git 源码是否干净，以及 Xcode、iPhoneOS SDK、Metal 编译器是否能被本机找到。工具使用固定参数和有限超时，不运行 `setup.sh`、不修改源码或资产、不读取任何游戏数据和密钥。不会查询钥匙串签名身份或设备。
+
+结果只有 `ready / missing / blocked / unknown / unsupported / not_checked` 等枚举值，不包含源码私有路径或工具诊断原文。`LOCAL_TOOLCHAIN_READY` **只表示公开工具条件已满足**，不代表游戏文件正确、签名有效、已完成 92/92 编译或真机可玩；对应的游戏资源、签名与设备永远显示“未检查”。若提示源码未清洁，先在本机使用 Git 检查，再由使用者处理，不会自动修改或清理工作区。
+
+## 本地磁盘映像（未公证，不是游戏安装包）
+
+Apple Silicon Mac 上可执行：
+
+```bash
+bash dm/launcher/package_mac_operator.sh
+cd dm/launcher/MacOperator/out
+shasum -a 256 -c Game2Mobile-Operator-local.dmg.sha256
+```
+
+生成 `Game2Mobile-Operator-local.dmg`（只包含 SwiftUI 工程操作器）及 SHA-256 校验文件。此 DMG 只采用本地 ad-hoc 应用签名，**没有 Apple Developer 签名或 Apple 公证**；Gatekeeper 可能阻止直接打开。它不会绕过系统安全机制，不建议将未经公证的构建宣传为普通用户免警告安装包。若同名磁盘映像已经存在，脚本会拒绝覆盖；需由所有者检查并自行处理。两套 Apple Silicon CI 只上传**无商业游戏资源**的工程工具 DMG，且自动化构建成功并不等于 Finder 安装/启动体验已人工验收。

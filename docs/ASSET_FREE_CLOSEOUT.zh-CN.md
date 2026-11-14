@@ -54,3 +54,9 @@ PR #20 的最终分支 12 项检查均通过，但主线再次执行时发现 Da
 ## 后续 S2-08 图形操作器（2026-11-10）
 
 新增 `dm/launcher/MacOperator` 独立 SwiftUI macOS 工程 App，复用既有 `g2mctl.py`，默认只读；显式选择仓库、私有工作区、图形配置与阶段，在二次警告确认后才启动本机原有 M1 构建。可以查询明确指定的本机启动日志、阶段状态和计划。无 shell 插值、无任意命令、无私有原始 JSON/日志回显、无网络和手机安装。`build_mac_operator.sh` 生成本机 ad-hoc 签名 `.app`；macOS 15/26 CI 编译、测试及检查包结构。完整使用边界见 [Mac 图形操作器](../dm/launcher/README.zh-CN.md)。**这不是完整 D2R 游戏启动器**，不意味着可玩或真实设备集成完成。
+
+## 后续工程操作器交付：只读 Doctor 与本地 DMG（2026-11-14）
+
+新增 `scripts/local_doctor.py` 和 `g2mctl doctor`，用于分类检查公开 Apple Silicon、Git、Xcode/SDK、Metal 和外部生成工具；只展示稳定枚举状态，不读取游戏文件、设备、签名身份，不把工具齐全判定为可玩。SwiftUI 操作器新增体检按钮、严格的 `OperatorCore` 检查表协议与脱敏展示，并禁止将伪造的只读作用域响应当作成功的显式本机构建结果。新增 Python 和 Swift 合成反例。
+
+新增 `dm/launcher/package_mac_operator.sh` 将**工程操作器**生成 unnotarized/ad-hoc 的本地 DMG 和 SHA-256，不覆盖已有映像，拒绝符号链接路径。Apple CI 编译、验证包结构与签名，并上传仅含工程工具的限期构建产物。仍未验证双击后的真实 GUI 工作流、Apple 公证、游戏本体签名与真机游玩。M1、完整 GPU 帧录放及多游戏后续范围不因此关闭。
