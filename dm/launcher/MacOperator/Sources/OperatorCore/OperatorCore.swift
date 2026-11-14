@@ -5,6 +5,7 @@ import Foundation
 
 public enum OperatorRequest: Equatable {
     case capabilities
+    case doctor
     case buildPlan
     case bootStatus(log: String)
     case jobStatus(file: String)
@@ -23,6 +24,7 @@ public enum OperatorRequest: Equatable {
     public var arguments: [String] {
         switch self {
         case .capabilities: return ["capabilities"]
+        case .doctor: return ["doctor"]
         case .buildPlan: return ["build-plan"]
         case .bootStatus(let log): return ["status", "--log", log]
         case .jobStatus(let file): return ["job-status", "--status-file", file]
@@ -35,6 +37,7 @@ public enum OperatorRequest: Equatable {
     public var command: String {
         switch self {
         case .capabilities: return "capabilities"
+        case .doctor: return "doctor"
         case .buildPlan: return "build-plan"
         case .bootStatus: return "status"
         case .jobStatus: return "job-status"
@@ -79,10 +82,16 @@ public struct OperatorReply: Decodable {
     public let scope: String
     public let playability: String?
     public let job_liveness: String?
+    public let toolchain_ready: Bool?
+    public let checks: [ToolCheck]?
     public let stages: [StageInfo]?
     public let observation: BootObservation?
     public let job: JobInfo?
 
+    public struct ToolCheck: Decodable {
+        public let id: String
+        public let status: String
+    }
     public struct StageInfo: Decodable {
         public let stage: String
         public let description: String
@@ -105,8 +114,8 @@ public struct OperatorReply: Decodable {
         guard let result = try? JSONDecoder().decode(OperatorReply.self, from: bytes) else {
             throw OperatorProtocolError.invalidEncoding
         }
-        guard result.schema == "game2mobile.operator.v1", result.scope == "local-read-only" ||
-                (request.isMutating && result.scope == "explicit-local-build") else {
+        guard result.schema == "game2mobile.operator.v1",
+              result.scope == (request.isMutating ? "explicit-local-build" : "local-read-only") else {
             throw OperatorProtocolError.invalidSchema
         }
         // Fixed command protocol, no free-form shell or path text in the UI.
@@ -125,11 +134,45 @@ public struct OperatorReply: Decodable {
               result.ok == (result.exit_code == 0) else {
             throw OperatorProtocolError.inconsistentExit
         }
+        if request == .doctor {
+            // A complete allowlisted inventory is mandatory. Readiness of
+            // tools must never imply private game, signing or device proof.
+            guard let checks = result.checks, checks.count == Self.doctorNames.count,
+                  let ready = result.toolchain_ready,
+                  result.code == (ready ? "LOCAL_TOOLCHAIN_READY" : "LOCAL_TOOLCHAIN_INCOMPLETE"),
+                  result.exit_code == (ready ? 0 : 1),
+                  Set(checks.map(\.id)) == Set(Self.doctorNames.keys),
+                  checks.allSatisfy({ Self.doctorStatuses.contains($0.status) }),
+                  checks.filter({ Self.privateChecks.contains($0.id) }).allSatisfy({ $0.status == "not_checked" }),
+                  ready == checks.filter({ !Self.privateChecks.contains($0.id) }).allSatisfy({ $0.status == "ready" })
+            else { throw OperatorProtocolError.invalidSchema }
+        }
         return result
     }
 
+    private static let privateChecks: Set<String> = ["licensed_inputs", "local_signing", "physical_device"]
+    private static let doctorStatuses: Set<String> = ["ready", "missing", "blocked", "unknown", "unsupported", "not_checked"]
+    private static let doctorNames: [String: String] = [
+        "platform": "Apple Silicon", "python3": "Python 3", "git": "Git",
+        "make": "Make", "xcodegen": "XcodeGen", "spirv_cross": "SPIRV-Cross",
+        "dotnet": ".NET", "git_checkout": "Git 仓库", "source_clean": "源码状态",
+        "xcode": "Xcode", "iphoneos_sdk": "iPhoneOS SDK",
+        "metal_compiler": "Metal 编译器", "licensed_inputs": "正版游戏资源",
+        "local_signing": "本机签名", "physical_device": "真机"
+    ]
+    private static let doctorLabels = ["ready": "就绪", "missing": "缺失", "blocked": "存在未提交改动",
+                                       "unknown": "无法确定", "unsupported": "环境不支持", "not_checked": "未检查"]
+
     public var summaryLines: [String] {
         var lines: [String] = ["状态码：\(code)", "命令结果：\(ok ? "完成该命令范围" : "未完成或失败")"]
+        if command == "doctor", let checks = checks, checks.count == Self.doctorNames.count {
+            for check in checks {
+                if let label = Self.doctorNames[check.id], let status = Self.doctorLabels[check.status] {
+                    lines.append("\(label)：\(status)")
+                }
+            }
+            lines.append("环境体检仅核对工具和源码；不读取游戏资源、签名凭据或设备。")
+        }
         if let value = observation {
             if let run = value.run_id, run.count == 32,
                run.utf8.allSatisfy({ (48...57).contains(Int($0)) || (97...102).contains(Int($0)) }) {

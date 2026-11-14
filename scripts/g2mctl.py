@@ -28,7 +28,7 @@ else:
     from m1_job_status import JobStatusError, read_job_status
 
 SCHEMA = "game2mobile.operator.v1"
-CAPABILITIES = {"capabilities": True, "status": True, "next": True,
+CAPABILITIES = {"capabilities": True, "doctor": True, "status": True, "next": True,
                 "diagnose": True, "job-status": True, "build": False, "install": False,
                 "build-plan": True, "build-local-explicit": True,
                 "bundle": True, "inspect-bundle": True,
@@ -58,6 +58,7 @@ def parser() -> JsonArgumentParser:
     result = JsonArgumentParser(description=__doc__)
     subs = result.add_subparsers(dest="command", required=True)
     subs.add_parser("capabilities", help="List supported read-only operations")
+    subs.add_parser("doctor", help="Read-only public toolchain checks; no private game inputs")
     for name in ("status", "next", "diagnose"):
         sub = subs.add_parser(name)
         sub.add_argument("--log", type=Path, help="Local boot.txt path (read-only)")
@@ -117,6 +118,15 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
     if command == "capabilities":
         return _response(command, "OK", 0, operations=CAPABILITIES,
                          playability="unverified")
+    if command == "doctor":
+        if __package__:
+            from .local_doctor import doctor_environment
+        else:
+            from local_doctor import doctor_environment
+        report = doctor_environment()
+        ready = report["toolchain_ready"]
+        return _response(command, "LOCAL_TOOLCHAIN_READY" if ready else "LOCAL_TOOLCHAIN_INCOMPLETE",
+                         0 if ready else 1, **report, playability="unverified")
     if command in ("build", "build-plan"):
         if command == "build" and not args.execute_local:
             return _response(command, "NOT_SUPPORTED", 3,

@@ -84,3 +84,11 @@ python3 scripts/g2mctl.py acceptance-check \
 顶层协议仍为 `game2mobile.operator.v1`。`0` 表示该命令范围内完成；`1` 表示尚未完成或明确失败；`2` 表示参数/证据异常；`3` 表示未授权或未支持操作；`130` 表示取消。`ok=true` 绝不统一代表可玩性。单阶段构建的成功与完整 `all` 构建分别返回 `M1_STAGE_PARTIAL` 和 `M1_STAGES_PASSED`。
 
 旧的启动观察命令保留原有行为和退出码。模板/验收、归档完整性、阶段进度、App 身份与真机可玩性是不同结论。单测只使用合成日志、匿名 Mach-O、普通文本与无害子进程，不包含商业游戏资源。
+
+## 6. 公开工具链体检（2026-11）
+
+```bash
+python3 scripts/g2mctl.py doctor
+```
+
+这是只读操作（`CAPABILITIES.doctor=true`）。只输出已知工具与环境状态枚举；检查源码清洁时禁用 Git 可选锁和 fsmonitor，子进程限时并丢弃工具路径/错误输出。返回 `LOCAL_TOOLCHAIN_READY`（退出 0）仅表示公开 M1 构建工具看起来已就绪，`LOCAL_TOOLCHAIN_INCOMPLETE`（退出 1）表示至少一项缺失、源码有改动或状态未知。**游戏资源、签名、真实设备一律 `not_checked`**，不会读取密钥或任何私有游戏字节。GUI 中的“检查构建环境”与此命令使用同一个协议。构建仍必须额外由所有者明确授权。

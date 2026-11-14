@@ -132,6 +132,7 @@ struct ContentView: View {
                 Text(repository == nil ? "尚未选择" : "仓库已选择")
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button("检查构建环境") { run(.doctor) }.disabled(repository == nil || controller.busy)
                 Button("查看能力") { run(.capabilities) }.disabled(repository == nil || controller.busy)
                 Button("查看阶段计划") { run(.buildPlan) }.disabled(repository == nil || controller.busy)
             }
