@@ -60,3 +60,7 @@ PR #20 的最终分支 12 项检查均通过，但主线再次执行时发现 Da
 新增 `scripts/local_doctor.py` 和 `g2mctl doctor`，用于分类检查公开 Apple Silicon、Git、Xcode/SDK、Metal 和外部生成工具；只展示稳定枚举状态，不读取游戏文件、设备、签名身份，不把工具齐全判定为可玩。SwiftUI 操作器新增体检按钮、严格的 `OperatorCore` 检查表协议与脱敏展示，并禁止将伪造的只读作用域响应当作成功的显式本机构建结果。新增 Python 和 Swift 合成反例。
 
 新增 `dm/launcher/package_mac_operator.sh` 将**工程操作器**生成 unnotarized/ad-hoc 的本地 DMG 和 SHA-256，不覆盖已有映像，拒绝符号链接路径。Apple CI 编译、验证包结构与签名，并上传仅含工程工具的限期构建产物。仍未验证双击后的真实 GUI 工作流、Apple 公证、游戏本体签名与真机游玩。M1、完整 GPU 帧录放及多游戏后续范围不因此关闭。
+
+## Windows 原生工程操作器（后续增量）
+
+`dm/launcher/WindowsOperator` 新增独立 Windows x64 原生 WinForms 图形工程诊断版与纯 .NET 核心校验库，安全读取用户明确选择的 macOS 启动事件、M1 v1/v2 阶段快照和摘要诊断 ZIP，拒绝跨运行冒用、重复 JSON 字段、假成功与档案篡改，仅允许导出匿名化检查枚举与合法运行标识。新增 `windows-2022` + Linux 跨平台无游戏资源 CI，并在 Windows 发布自包含工程 EXE ZIP 和 SHA-256。Windows 下 Python `g2mctl.py build` 明确拒绝，`capabilities` 不再宣称 Windows 可执行 Apple M1 本机构建。该工具没有远程 Mac agent、Windows→iOS 编译/签名、游戏本体或设备安装；M1 真实资源构建及真机验收边界不变。实际 CI 验证以 Windows PR/提交记录为准。
