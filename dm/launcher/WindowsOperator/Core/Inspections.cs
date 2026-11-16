@@ -120,7 +120,7 @@ public static class M1SnapshotInspector
     public static Inspection Inspect(string path)
     {
         try { return InspectBytes(SafeLocalFile.Read(path, SafeLocalFile.MaxJobBytes)); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or JsonException or InvalidOperationException or InvalidDataException)
         { return Inspection.Invalid("M1_STATUS_INVALID"); }
     }
 

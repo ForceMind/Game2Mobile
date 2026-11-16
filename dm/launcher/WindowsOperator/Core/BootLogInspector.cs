@@ -125,7 +125,7 @@ public static class BootLogInspector
                  $"首帧呈现回调：{(selected.FirstPresent ? "已观察" : "尚无证据")}",
                  "显示回调并不能证明像素正确、游戏可玩或真机执行", "正式判定请使用 macOS 主仓库启动诊断与设备验收工具"], selectedId);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or DecoderFallbackException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or DecoderFallbackException or InvalidOperationException or InvalidDataException)
         { return Inspection.Invalid("BOOT_INPUT_INVALID"); }
     }
 }
