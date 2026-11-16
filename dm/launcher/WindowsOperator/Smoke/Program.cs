@@ -54,6 +54,10 @@ try
     Check(BootLogInspector.Inspect(log).Code == "RUNTIME_ERROR", "later error overrides frame");
     File.WriteAllText(log, Event(1,"host_start","begin") + "\n" + Event(2,"host_start","ok") + "\n" + Event(3,"guest_entry","ok") + "\n" + Event(4,"gpu_submit","ok") + "\n" + Event(5,"first_present","ok") + "\n" + Event(1,"host_start","begin", new string('c',32)));
     Check(BootLogInspector.Inspect(log).Code == "STARTUP_INCOMPLETE", "newest run not old frame");
+    File.WriteAllText(log, string.Join("\n", new[] { Event(1,"host_start","begin"), Event(2,"host_start","ok"),
+        Event(3,"guest_entry","ok"), Event(4,"gpu_submit","ok"), Event(5,"first_present","ok"),
+        Event(1,"gpu_submit","ok", new string('d',32)) }));
+    Check(BootLogInspector.Inspect(log).Code == "BOOT_EVIDENCE_INVALID", "new run missing host_start cannot borrow older rendered frame");
     File.WriteAllText(log, "DONE\n");
     Check(BootLogInspector.Inspect(log).Code == "NO_BOOT_EVIDENCE", "legacy done isn't proof");
     File.WriteAllText(log, Event(1,"host_start","begin") + "\n" + Event(2,"host_start","ok").Replace("\"code\":\"\"", "\"code\":\"\",\"code\":\"\""));
@@ -87,6 +91,7 @@ try
     {
         File.CreateSymbolicLink(symlink, normal);
         Check(M1SnapshotInspector.Inspect(symlink).Code == "M1_STATUS_INVALID", "symlink input denied");
+        Check(BootLogInspector.Inspect(symlink).Code == "BOOT_INPUT_INVALID", "symlink log denied without exception");
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
     { Console.WriteLine("Symlink creation not permitted; rejection test skipped by host policy."); }

@@ -35,8 +35,8 @@ public static class BootLogInspector
             // UTF-8 must be valid: never reinterpret arbitrary private bytes as a successful event.
             string text = new UTF8Encoding(false, true).GetString(bytes);
             var runs = new Dictionary<string, Run>(StringComparer.Ordinal);
-            string? latest = null;
-            string? latestStart = null;
+            // A later run with a missing host_start cannot borrow an older complete run.
+            string? newestEncounteredRun = null;
             int allEvents = 0;
             bool invalidProtocol = false;
             foreach (string line in text.Split('\n'))
@@ -70,6 +70,7 @@ public static class BootLogInspector
                     {
                         if (runs.Count >= 1024) { invalidProtocol = true; break; }
                         run = new Run(); runs.Add(id, run);
+                        newestEncounteredRun = id;
                     }
                     if (seq != run.LastSeq + 1 || elapsed < run.LastElapsed ||
                         (run.Events == 0 && !(stage == "host_start" && status == "begin" && seq == 1)))
@@ -83,7 +84,6 @@ public static class BootLogInspector
                     {
                         if (run.InitialBegin || run.Started) run.Invalid = true;
                         run.InitialBegin = true;
-                        if (seq == 1) latestStart = id;
                     }
                     if (stage == "host_start" && status == "ok")
                     {
@@ -102,13 +102,12 @@ public static class BootLogInspector
                         run.FirstPresent = true;
                     }
                     if (stage == "host_return") run.Returned = true;
-                    latest = id;
                 }
                 catch (Exception ex) when (ex is JsonException or InvalidDataException or InvalidOperationException or FormatException or OverflowException)
                 { invalidProtocol = true; }
             }
             if (invalidProtocol) return Inspection.Invalid("BOOT_EVIDENCE_INVALID");
-            string? selectedId = latestStart ?? latest;
+            string? selectedId = newestEncounteredRun;
             if (selectedId is null) return new Inspection("NO_BOOT_EVIDENCE", false,
                 ["未发现合法 G2M_BOOT 事件", "旧式 DONE 行不能证明运行或画面", "游戏可玩性：未验证"]);
             var selected = runs[selectedId];
