@@ -30,12 +30,10 @@ jobs:
           python -m unittest scripts.tests.test_windows_read_only -v
           python scripts/g2mctl.py capabilities
           python scripts/g2mctl.py build-plan
-          # Deliberately test a refused non-zero native exit without PowerShell aborting first.
-          $PSNativeCommandUseErrorActionPreference = $false
-          $output = python scripts/g2mctl.py build --execute-local --workspace 'C:\private\game-files' --stage all
-          if ($LASTEXITCODE -ne 3) { throw 'Windows iOS build must be refused with code 3' }
-          $response = $output | ConvertFrom-Json
-          if ($response.code -ne 'NOT_SUPPORTED' -or $response.ok) { throw 'Unsafe Windows build response' }
+          # Test expected nonzero result inside Python, so PowerShell's native-command
+          # error action settings cannot abort the job before assertions run.
+          python -c 'import json,subprocess,sys; p=subprocess.run([sys.executable,"scripts/g2mctl.py","build","--execute-local","--workspace",r"C:\private\game-files","--stage","all"],capture_output=True,text=True); assert p.returncode==3 and json.loads(p.stdout)["code"]=="NOT_SUPPORTED"'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows iOS build must be rejected as unsupported' }
       - name: Compile actual Windows GUI and run synthetic core smoke tests
         shell: pwsh
         run: |
