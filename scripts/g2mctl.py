@@ -116,7 +116,11 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
         return _response("unknown", "BAD_ARGUMENT", 2)
     command = args.command
     if command == "capabilities":
-        return _response(command, "OK", 0, operations=CAPABILITIES,
+        operations = dict(CAPABILITIES)
+        if sys.platform == "win32":
+            # Windows can inspect local evidence, not run Xcode or sign iOS Apps.
+            operations["build-local-explicit"] = False
+        return _response(command, "OK", 0, operations=operations,
                          playability="unverified")
     if command == "doctor":
         if __package__:
@@ -128,6 +132,12 @@ def operate(argv: list[str] | None = None, *, environ: dict[str, str] | None = N
         return _response(command, "LOCAL_TOOLCHAIN_READY" if ready else "LOCAL_TOOLCHAIN_INCOMPLETE",
                          0 if ready else 1, **report, playability="unverified")
     if command in ("build", "build-plan"):
+        # Fail closed before any POSIX-only imports or private workspace IO.
+        # The Windows engineering UI only inspects artifacts exported by a Mac.
+        if command == "build" and sys.platform == "win32":
+            return _response(command, "NOT_SUPPORTED", 3,
+                             next_action="iOS builds require an owner-controlled Apple Silicon Mac",
+                             playability="unverified")
         if command == "build" and not args.execute_local:
             return _response(command, "NOT_SUPPORTED", 3,
                              next_action="Explicit --execute-local and --workspace are required; no build started.")

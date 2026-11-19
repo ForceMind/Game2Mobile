@@ -50,3 +50,7 @@ shasum -a 256 -c Game2Mobile-Operator-local.dmg.sha256
 ```
 
 生成 `Game2Mobile-Operator-local.dmg`（只包含 SwiftUI 工程操作器）及 SHA-256 校验文件。此 DMG 只采用本地 ad-hoc 应用签名，**没有 Apple Developer 签名或 Apple 公证**；Gatekeeper 可能阻止直接打开。它不会绕过系统安全机制，不建议将未经公证的构建宣传为普通用户免警告安装包。若同名磁盘映像已经存在，脚本会拒绝覆盖；需由所有者检查并自行处理。两套 Apple Silicon CI 只上传**无商业游戏资源**的工程工具 DMG，且自动化构建成功并不等于 Finder 安装/启动体验已人工验收。
+
+## Windows 原生版（新增）
+
+新增 [`WindowsOperator/`](WindowsOperator/README.zh-CN.md)：独立的 Windows 10/11 x64 .NET 8 WinForms 本地工程诊断程序。它只读取用户明确选择的本机启动日志、M1 状态 JSON 或 Mac 产生的摘要 ZIP，不调用 Xcode、不生成或签名 iOS 游戏，也没有远程构建功能。它与现有 macOS SwiftUI 工程操作器共享 Game2Mobile 的证据格式和“首帧不等于可玩”验收原则，但 Windows 上不声称能够执行 M1。真实 `windows-2022` CI 会编译、运行合成输入检查、发布无游戏资源自包含 EXE 的 ZIP 和 SHA-256。Windows 版为**未签名技术预览**，不是 Windows D2R 可玩版本。

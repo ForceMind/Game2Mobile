@@ -97,3 +97,7 @@ S2-04/06 仍需目标游戏与 GPU 输出验证；S2-07 完整帧录放器未交
 [g2-gfx]: https://github.com/ForceMind/Game2Mobile/blob/14af5aa48358063ccb38b5b6b6bb504a5cb7db95/dm/gfx/README.zh-CN.md
 [g2-verify]: https://github.com/ForceMind/Game2Mobile/blob/14af5aa48358063ccb38b5b6b6bb504a5cb7db95/dm/verify/README.zh-CN.md
 [g2-m1]: https://github.com/ForceMind/Game2Mobile/blob/14af5aa48358063ccb38b5b6b6bb504a5cb7db95/docs/M1_PRIVATE_BUILD.zh-CN.md
+
+### Windows 工程操作器（S2-08 跨平台增量）
+
+新增 `dm/launcher/WindowsOperator` 使用 .NET 8 WinForms 实际生成 Windows 离线诊断版：读取指定启动日志、M1 状态快照、macOS 摘要 ZIP，带可用性提示、完整性校验和脱敏摘要导出。 Windows 不调用 M1 构建，也没有 Mac 远程控制、签名或设备安装。它是 S2-08 **Windows 只读工程工具部分实现**，不意味着 S2-05 真实 iPhone 启动或 S2-11/12 多平台游戏适配成功。真实 Windows CI 验收与分发的二进制证据由对应 PR/工作流追踪。

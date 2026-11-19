@@ -10,6 +10,8 @@
 
 > **本机工程工具：** [操作与诊断接口](docs/AI_OPERATOR_CLI.zh-CN.md) · [无资源交付及剩余范围](docs/ASSET_FREE_CLOSEOUT.zh-CN.md)。源码检查、签名构建、首帧观察与真机可玩分别验收。
 
+> **Windows 工程操作器：** 新增 [Windows 原生离线诊断工具](dm/launcher/WindowsOperator/README.zh-CN.md)（日志、M1 快照、脱敏 ZIP 的本地检查和导出）。**Windows 不支持本机 Xcode/iOS 游戏构建**；Windows 工具不是 Windows 游戏版本或远程 Mac 代理。
+
 
 **开源的《暗黑破坏神 II：狱火重生》iOS / macOS 兼容层。** Game2Mobile 在原有 ARM64 原生执行、系统服务与 Metal 适配代码上继续开发。用户须自行合法提供版本匹配的游戏资源。本项目尚未独立完成真实游戏的完整签名构建和真机游玩验收。
 

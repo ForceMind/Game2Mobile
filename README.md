@@ -10,6 +10,8 @@
 
 > **Local engineering tools:** [Operator CLI](docs/AI_OPERATOR_CLI.zh-CN.md) · [Asset-free delivery and remaining work](docs/ASSET_FREE_CLOSEOUT.zh-CN.md). Source checks, signed builds, first-present observations and device playability are separate results.
 
+> **Windows engineering tool:** [Native Windows offline operator (Chinese)](dm/launcher/WindowsOperator/README.zh-CN.md) can inspect explicitly selected boot logs, M1 snapshots, and summary ZIPs. **Windows does not build or sign the iOS game**. This is a development tool, not a Windows D2R port.
+
 
 **An open-source iOS / macOS compatibility layer targeting Diablo II: Resurrected.** Game2Mobile continues the imported ARM64-native, platform-service and Metal adaptation code. Users supply their own legally obtained, version-matched game files. Game2Mobile has not yet independently validated a complete signed game build or device gameplay.
 
