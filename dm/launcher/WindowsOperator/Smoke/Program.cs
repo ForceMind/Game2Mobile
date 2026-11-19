@@ -58,6 +58,20 @@ try
         Event(3,"guest_entry","ok"), Event(4,"gpu_submit","ok"), Event(5,"first_present","ok"),
         Event(1,"gpu_submit","ok", new string('d',32)) }));
     Check(BootLogInspector.Inspect(log).Code == "BOOT_EVIDENCE_INVALID", "new run missing host_start cannot borrow older rendered frame");
+    string completeChain = string.Join("\n", new[] { Event(1,"host_start","begin"), Event(2,"host_start","ok"),
+        Event(3,"guest_entry","ok"), Event(4,"gpu_submit","ok"), Event(5,"first_present","ok") });
+    foreach (string torn in new[] { "G2M_", "G2M_BOOT", "G2M_BOOT{" })
+    {
+        File.WriteAllText(log, completeChain + "\n" + torn);
+        Check(BootLogInspector.Inspect(log).Code == "BOOT_EVIDENCE_INVALID",
+              "unterminated protocol prefix cannot borrow previous first present: " + torn);
+    }
+    File.WriteAllText(log, completeChain + "\nordinary non-protocol output");
+    Check(BootLogInspector.Inspect(log).Code == "FIRST_PRESENT_OBSERVED",
+          "non-protocol tail does not invalidate valid boot evidence");
+    File.WriteAllText(log, "G2M_BO");
+    Check(BootLogInspector.Inspect(log).Code == "BOOT_EVIDENCE_INVALID",
+          "truncated prefix without preceding run is invalid");
     File.WriteAllText(log, "DONE\n");
     Check(BootLogInspector.Inspect(log).Code == "NO_BOOT_EVIDENCE", "legacy done isn't proof");
     File.WriteAllText(log, Event(1,"host_start","begin") + "\n" + Event(2,"host_start","ok").Replace("\"code\":\"\"", "\"code\":\"\",\"code\":\"\""));

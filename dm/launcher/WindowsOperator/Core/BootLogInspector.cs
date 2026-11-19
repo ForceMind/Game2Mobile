@@ -39,9 +39,22 @@ public static class BootLogInspector
             string? newestEncounteredRun = null;
             int allEvents = 0;
             bool invalidProtocol = false;
-            foreach (string line in text.Split('\n'))
+            string[] lines = text.Split('\n');
+            bool finalLineUnterminated = !text.EndsWith('\n');
+            for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
+                string line = lines[lineIndex];
                 var trimmed = line.EndsWith('\r') ? line[..^1] : line;
+                // A torn final protocol prefix is evidence corruption, not harmless
+                // non-protocol output. Never borrow a previous valid first_present.
+                if (finalLineUnterminated && lineIndex == lines.Length - 1 &&
+                    trimmed.Length > 0 && !trimmed.StartsWith(Prefix, StringComparison.Ordinal) &&
+                    (Prefix.StartsWith(trimmed, StringComparison.Ordinal) ||
+                     trimmed.StartsWith("G2M_BOOT", StringComparison.Ordinal)))
+                {
+                    invalidProtocol = true;
+                    break;
+                }
                 if (!trimmed.StartsWith(Prefix, StringComparison.Ordinal)) continue;
                 if (trimmed.Length > 16 * 1024 || allEvents >= 100_000)
                 { invalidProtocol = true; break; }
